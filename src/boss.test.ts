@@ -10,7 +10,7 @@ import { cycleForStage } from './cycle';
 function reachStage(number: number) {
   const stage = new StageManager();
   while (stage.stageNumber < number) {
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
     expect(stage.continue()).toBe(true);
   }
@@ -117,14 +117,14 @@ describe('BossManager', () => {
 describe('stage and economy boss integration', () => {
   it('finishes ordinary stages directly, starts boss timer fresh, and never carries collection time', () => {
     const ordinary = reachStage(2);
-    ordinary.recordReward(ordinary.target);
+    ordinary.recordCollection(ordinary.target, ordinary.target);
     expect(ordinary.status).toBe('COMPLETED');
     const stage = reachStage(3);
     stage.tick(stage.remainingMs - 1);
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     expect(stage).toMatchObject({ status: 'BOSS_FIGHT', remainingMs: 25_000, durationMs: 25_000,
       progress: 30n, maxCompletedStage: 2 });
-    expect(stage.recordReward(1n)).toBe(false);
+    expect(stage.recordCollection(1n, 1n)).toBe(false);
     expect(stage.continue()).toBe(false);
     expect(stage.retry()).toBe(false);
     expect(stage.tick(25_000, true)).toBe('BOSS_FIGHT');
@@ -139,7 +139,7 @@ describe('stage and economy boss integration', () => {
   it('fails collection at exact timeout and gives no boss', () => {
     const stage = reachStage(3);
     expect(stage.tick(stage.remainingMs)).toBe('FAILED');
-    expect(stage.recordReward(stage.target)).toBe(false);
+    expect(stage.recordCollection(stage.target, stage.target)).toBe(false);
     expect(stage.completeBoss()).toBe(false);
   });
 
@@ -151,7 +151,7 @@ describe('stage and economy boss integration', () => {
     economy.recordHit(100n);
     expect(upgrades.buy('power', economy)).toBe(true);
     const cookie = spawns.spawn({ width: 300, height: 300 }, 0)!;
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     expect(applyCookieHit(spawns, economy, stage, cookie.id, upgrades.damage, upgrades.reward)).toBeUndefined();
     const fight = new BossManager(3);
     let now = 0;
@@ -176,7 +176,7 @@ describe('stage and economy boss integration', () => {
     const huge = 2n ** 65n;
     economy.recordHit(huge);
     expect(upgrades.buy('value', economy)).toBe(true);
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     const fight = new BossManager(12);
     fight.hit(20, 0, huge);
     expect(fight.hit(48, 1, huge)?.reward).toBe(huge * 100n);
@@ -195,12 +195,12 @@ describe('stage and economy boss integration', () => {
     const stage = reachStage(12);
     const economy = new Economy();
     const huge = 2n ** 65n;
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     const fight = new BossManager(12);
     applyBossHit(fight, economy, stage, 20, 0, huge);
     const final = applyBossHit(fight, economy, stage, 48, 1, huge);
     expect(final?.reward).toBe(huge * 100n);
-    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 220n, earned: 220n });
+    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 220n, currencyEarned: 220n });
     expect(economy).toMatchObject({ balance: huge * 100n, lifetimeEarned: huge * 100n,
       bossesDefeated: 1, cookiesDestroyed: 0, validHits: 0 });
     expect(applyBossHit(fight, economy, stage, 1, 2, huge)).toBeUndefined();
@@ -210,7 +210,7 @@ describe('stage and economy boss integration', () => {
   it('routes stage 15 through a scaled boss and continues to stage 16', () => {
     const stage = reachStage(15);
     expect(stage.isBossCheckpoint).toBe(true);
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     expect(stage.status).toBe('BOSS_FIGHT');
     expect(stage.completeBoss()).toBe(true);
     expect(stage.continue()).toBe(true);

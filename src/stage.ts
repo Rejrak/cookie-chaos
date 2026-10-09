@@ -20,7 +20,8 @@ export class StageManager {
   stageNumber = 1;
   target = 0n;
   progress = 0n;
-  earned = 0n;
+  pointsEarned = 0n;
+  currencyEarned = 0n;
   durationMs = 0;
   remainingMs = 0;
   status: StageStatus = 'RUNNING';
@@ -43,7 +44,8 @@ export class StageManager {
     this.durationMs = config.durationMs;
     this.remainingMs = config.durationMs;
     this.progress = 0n;
-    this.earned = 0n;
+    this.pointsEarned = 0n;
+    this.currencyEarned = 0n;
     this.status = 'RUNNING';
   }
 
@@ -55,11 +57,12 @@ export class StageManager {
     return this.status;
   }
 
-  recordReward(amount: bigint): boolean {
-    if (amount <= 0n) throw new RangeError('Reward must be positive');
+  recordCollection(stagePoints: bigint, currencyReward: bigint): boolean {
+    if (stagePoints <= 0n || currencyReward <= 0n) throw new RangeError('Collection rewards must be positive');
     if (this.status !== 'RUNNING') return false;
-    this.earned += amount;
-    this.progress = this.earned < this.target ? this.earned : this.target;
+    this.pointsEarned += stagePoints;
+    this.currencyEarned += currencyReward;
+    this.progress = this.pointsEarned < this.target ? this.pointsEarned : this.target;
     if (this.progress === this.target) {
       const boss = bossForStage(this.stageNumber);
       if (boss) {

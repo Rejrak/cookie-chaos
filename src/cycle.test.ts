@@ -56,7 +56,7 @@ describe('endless cycle metadata and bosses', () => {
     const upgrades = new UpgradeManager();
     for (let number = 1; number <= 12; number++) {
       expect(stage.stageNumber).toBe(number);
-      stage.recordReward(stage.target);
+      stage.recordCollection(stage.target, stage.target);
       if (stage.status === 'BOSS_FIGHT') {
         const boss = new BossManager(number);
         const now = 0;
@@ -76,17 +76,17 @@ describe('endless cycle metadata and bosses', () => {
   it('retries global stage 24 with fresh collection and boss timers', () => {
     const stage = new StageManager();
     while (stage.stageNumber < 24) {
-      stage.recordReward(stage.target);
+      stage.recordCollection(stage.target, stage.target);
       if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
       stage.continue();
     }
     expect(stage.cycle).toMatchObject({ cycleNumber: 2, stageInCycle: 12 });
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     expect(stage).toMatchObject({ status: 'BOSS_FIGHT', remainingMs: 50_000, progress: 460n });
     stage.tick(50_000);
     expect(stage.retry()).toBe(true);
     expect(stage).toMatchObject({ stageNumber: 24, status: 'RUNNING', remainingMs: 90_000, progress: 0n });
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     expect(stage.completeBoss()).toBe(true);
     expect(stage.maxCompletedStage).toBe(24);
     expect(stage.continue()).toBe(true);
@@ -105,11 +105,11 @@ describe('endless cycle metadata and bosses', () => {
     expect(berserker.hit(1, 1, 1n)?.comboBonus).toBe(0);
     const stage = new StageManager();
     while (stage.stageNumber < 24) {
-      stage.recordReward(stage.target);
+      stage.recordCollection(stage.target, stage.target);
       if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
       stage.continue();
     }
-    stage.recordReward(stage.target);
+    stage.recordCollection(stage.target, stage.target);
     const economy = new Economy();
     const cookieng = new BossManager(24);
     expect(applyBossHit(cookieng, economy, stage, 25, 0, 2n)).toMatchObject({ phase: 'GOLDEN', hp: 68, reward: null });

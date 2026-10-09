@@ -8,7 +8,7 @@ import { UpgradeManager } from './upgrades';
 describe('StageManager', () => {
   it('starts stage 1 with isolated progress and time', () => {
     const stage = new StageManager();
-    expect(stage).toMatchObject({ stageNumber: 1, target: 12n, progress: 0n, earned: 0n,
+    expect(stage).toMatchObject({ stageNumber: 1, target: 12n, progress: 0n, currencyEarned: 0n,
       durationMs: 30_000, remainingMs: 30_000, status: 'RUNNING', maxCompletedStage: 0 });
     expect(stage.progressPercent).toBe(0);
   });
@@ -35,35 +35,35 @@ describe('StageManager', () => {
     expect(stage.remainingMs).toBe(1);
     expect(stage.tick(1)).toBe('FAILED');
     expect(stage.remainingMs).toBe(0);
-    expect(stage.recordReward(12n)).toBe(false);
+    expect(stage.recordCollection(12n, 12n)).toBe(false);
     expect(stage.tick(5000)).toBe('FAILED');
     for (const invalid of [-1, Infinity, NaN]) expect(() => stage.tick(invalid)).toThrow(RangeError);
   });
 
   it('completes once, caps display progress, and continues exactly one stage', () => {
     const stage = new StageManager();
-    expect(stage.recordReward(5n)).toBe(true);
-    expect(stage.recordReward(10n)).toBe(true);
-    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 12n, earned: 15n, maxCompletedStage: 1 });
+    expect(stage.recordCollection(5n, 5n)).toBe(true);
+    expect(stage.recordCollection(10n, 10n)).toBe(true);
+    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 12n, currencyEarned: 15n, maxCompletedStage: 1 });
     expect(stage.progressPercent).toBe(100);
-    expect(stage.recordReward(1n)).toBe(false);
+    expect(stage.recordCollection(1n, 1n)).toBe(false);
     expect(stage.tick(100_000)).toBe('COMPLETED');
     expect(stage.retry()).toBe(false);
     expect(stage.continue()).toBe(true);
-    expect(stage).toMatchObject({ stageNumber: 2, target: 20n, progress: 0n, earned: 0n,
+    expect(stage).toMatchObject({ stageNumber: 2, target: 20n, progress: 0n, currencyEarned: 0n,
       remainingMs: 40_000, status: 'RUNNING', maxCompletedStage: 1 });
     expect(stage.continue()).toBe(false);
-    expect(() => stage.recordReward(0n)).toThrow(RangeError);
+    expect(() => stage.recordCollection(0n, 0n)).toThrow(RangeError);
   });
 
   it('retries only failed stage and preserves completed-stage record', () => {
     const stage = new StageManager();
     expect(stage.retry()).toBe(false);
-    stage.recordReward(3n);
+    stage.recordCollection(3n, 3n);
     stage.tick(30_000);
     expect(stage.continue()).toBe(false);
     expect(stage.retry()).toBe(true);
-    expect(stage).toMatchObject({ stageNumber: 1, target: 12n, progress: 0n, earned: 0n,
+    expect(stage).toMatchObject({ stageNumber: 1, target: 12n, progress: 0n, currencyEarned: 0n,
       remainingMs: 30_000, status: 'RUNNING' });
     expect(stage.retry()).toBe(false);
   });
@@ -71,11 +71,11 @@ describe('StageManager', () => {
   it('keeps huge bigint rewards exact and converts only bounded percentage', () => {
     const huge = 2n ** 70n;
     const stage = new StageManager(() => ({ target: huge, durationMs: 30_000, isBossCheckpoint: false }));
-    stage.recordReward(huge / 2n);
+    stage.recordCollection(huge / 2n, huge / 2n);
     expect(stage.progress).toBe(huge / 2n);
     expect(stage.progressPercent).toBe(50);
-    stage.recordReward(huge);
-    expect(stage.earned).toBe(huge + huge / 2n);
+    stage.recordCollection(huge, huge);
+    expect(stage.currencyEarned).toBe(huge + huge / 2n);
     expect(stage.progress).toBe(huge);
     expect(stage.progressPercent).toBe(100);
     expect(() => new StageManager(() => ({ target: 0n, durationMs: 30_000, isBossCheckpoint: false }))).toThrow(RangeError);
@@ -104,12 +104,14 @@ describe('stage gameplay integration', () => {
     const normal = spawns.spawn({ width: 900, height: 700 }, 0, 40, undefined, { forcedType: 'NORMAL' })!;
     const golden = spawns.spawn({ width: 900, height: 700 }, 0, 40, undefined, { forcedType: 'GOLDEN' })!;
     const hard = spawns.spawn({ width: 900, height: 700 }, 0, 40, undefined, { forcedType: 'HARD' })!;
-    expect(applyCookieHit(spawns, economy, stage, normal.id, 1, 2n)?.reward).toBe(2n);
-    expect(applyCookieHit(spawns, economy, stage, golden.id, 1, 2n)?.reward).toBe(10n);
-    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 12n, earned: 12n });
-    expect(applyCookieHit(spawns, economy, stage, hard.id, 3, 2n)).toBeUndefined();
+    const secondGolden = spawns.spawn({ width: 900, height: 700 }, 0, 40, undefined, { forcedType: 'GOLDEN' })!;
+    expect(applyCookieHit(spawns, economy, stage, normal.id, 1, 2n)).toMatchObject({ currencyReward: 2n, stagePoints: 1n });
+    expect(applyCookieHit(spawns, economy, stage, golden.id, 1, 2n)).toMatchObject({ currencyReward: 10n, stagePoints: 5n });
+    expect(applyCookieHit(spawns, economy, stage, hard.id, 3, 2n)).toMatchObject({ currencyReward: 12n, stagePoints: 3n });
+    expect(applyCookieHit(spawns, economy, stage, secondGolden.id, 1, 2n)).toMatchObject({ currencyReward: 10n, stagePoints: 5n });
+    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 12n, pointsEarned: 14n, currencyEarned: 34n });
     expect(applyCookieHit(spawns, economy, stage, golden.id, 1, 2n)).toBeUndefined();
-    expect(economy).toMatchObject({ balance: 12n, cookiesDestroyed: 2, validHits: 2 });
+    expect(economy).toMatchObject({ balance: 34n, cookiesDestroyed: 4, validHits: 4 });
   });
 
   it('counts Hard partial hits but neither pays nor advances stage until death', () => {
@@ -118,12 +120,12 @@ describe('stage gameplay integration', () => {
     const stage = new StageManager();
     const hard = spawns.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: 'HARD' })!;
     for (const hp of [2, 1]) {
-      expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 1n)).toMatchObject({ hp, reward: null });
+      expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 1n)).toMatchObject({ hp, currencyReward: null, stagePoints: null });
       expect(stage.progress).toBe(0n);
       expect(economy.balance).toBe(0n);
     }
-    expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 1n)?.reward).toBe(6n);
-    expect(stage.progress).toBe(6n);
+    expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 1n)).toMatchObject({ currencyReward: 6n, stagePoints: 3n });
+    expect(stage.progress).toBe(3n);
     expect(economy).toMatchObject({ balance: 6n, validHits: 3, cookiesDestroyed: 1 });
   });
 
@@ -134,11 +136,13 @@ describe('stage gameplay integration', () => {
     const stage = new StageManager();
     const golden = spawns.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: 'GOLDEN' })!;
     applyCookieHit(spawns, economy, stage, golden.id, 1, 3n);
-    expect(stage.earned).toBe(15n);
+    expect(stage.currencyEarned).toBe(15n);
+    expect(stage.progress).toBe(5n);
     expect(upgrades.buy('value', economy)).toBe(true);
     expect(economy.balance).toBe(1n);
-    expect(stage.earned).toBe(15n);
-    expect(stage.status).toBe('COMPLETED');
+    expect(stage.currencyEarned).toBe(15n);
+    expect(stage.progress).toBe(5n);
+    expect(stage.status).toBe('RUNNING');
     expect(upgrades.reward).toBe(2n);
   });
 

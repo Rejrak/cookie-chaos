@@ -10,10 +10,11 @@ export function applyCookieHit(spawns: SpawnManager, economy: Economy, stage: St
   if (!cookie) return;
   const hit = spawns.hit(id, damage);
   if (!hit) return;
-  const reward = hit.destroyed ? cookieReward(cookie, baseReward) : null;
-  economy.recordHit(reward);
-  if (reward !== null) stage.recordReward(reward);
-  return { ...hit, reward };
+  const currencyReward = hit.destroyed ? cookieReward(cookie, baseReward) : null;
+  const stagePoints = hit.destroyed ? cookie.stagePoints : null;
+  economy.recordHit(currencyReward);
+  if (currencyReward !== null && stagePoints !== null) stage.recordCollection(stagePoints, currencyReward);
+  return { ...hit, currencyReward, stagePoints };
 }
 
 export function applyBossHit(boss: BossManager, economy: Economy, stage: StageManager,

@@ -12,15 +12,15 @@ export const RULES = {
 export const COOKIE_SOURCE_RADIUS = 48;
 
 export const COOKIE_TYPES = {
-  NORMAL: { hp: 1, multiplier: 1n, weightBp: 8000, texture: 'cookie', asset: '/cookie.svg' },
-  HARD: { hp: 3, multiplier: 6n, weightBp: 1500, texture: 'hard-cookie', asset: '/hard-cookie.svg' },
-  GOLDEN: { hp: 1, multiplier: 5n, weightBp: 500, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
+  NORMAL: { hp: 1, multiplier: 1n, stagePoints: 1n, weightBp: 8000, texture: 'cookie', asset: '/cookie.svg' },
+  HARD: { hp: 3, multiplier: 6n, stagePoints: 3n, weightBp: 1500, texture: 'hard-cookie', asset: '/hard-cookie.svg' },
+  GOLDEN: { hp: 1, multiplier: 5n, stagePoints: 5n, weightBp: 500, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
 } as const;
 
 export type CookieType = keyof typeof COOKIE_TYPES;
 export type Cookie = {
   id: number; type: CookieType; x: number; y: number; radius: number;
-  hp: number; maxHp: number; expiresAt: number; rewardMultiplier: bigint;
+  hp: number; maxHp: number; expiresAt: number; rewardMultiplier: bigint; stagePoints: bigint;
 };
 export type Bounds = { width: number; height: number };
 export type PlayArea = { left: number; top: number; right: number; bottom: number };
@@ -93,7 +93,7 @@ export class SpawnManager {
     const definition = COOKIE_TYPES[type];
     const hp = type === 'HARD' ? hardHp : definition.hp;
     const cookie = { id: this.nextId++, type, ...position, radius, hp, maxHp: hp,
-      expiresAt: now + RULES.lifetimeMs, rewardMultiplier: definition.multiplier };
+      expiresAt: now + RULES.lifetimeMs, rewardMultiplier: definition.multiplier, stagePoints: definition.stagePoints };
     this.active.set(cookie.id, cookie);
     return cookie;
   }

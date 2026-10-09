@@ -157,7 +157,8 @@ class GameScene extends Phaser.Scene {
       this.cracks.get(cookie.id)?.destroy();
       this.cracks.delete(cookie.id);
       this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
-      this.floatText(cookie, `+${formatAmount(hit.reward!)}`, cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
+      this.floatText(cookie, `+${formatAmount(hit.stagePoints!)} SP · +${formatAmount(hit.currencyReward!)} Cookies`,
+        cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
       if (cookie.type === 'GOLDEN') {
         const halo = this.add.circle(cookie.x, cookie.y, cookie.radius + 5).setStrokeStyle(3, 0xffd45f).setDepth(1);
         this.tweens.add({ targets: halo, scale: 1.35, alpha: 0, duration: 260, onComplete: () => halo.destroy() });
@@ -429,7 +430,7 @@ class GameScene extends Phaser.Scene {
     const cycleComplete = this.stage.status === 'COMPLETED' && this.stage.cycle.stageInCycle === 12;
     const result = cycleComplete ? `${kingdomName(this.stage.cycle.cycleNumber).toUpperCase()} COMPLETE` :
       this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP';
-    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} · Earned ${formatAmount(this.stage.earned)}`;
+    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Earned ${formatAmount(this.stage.currencyEarned)} Cookies`;
     this.terminalBackground.setSize(width, height).setVisible(visible);
     this.terminalText.setPosition(width / 2, height / 2 - 35).setFontSize(width < 300 ? 16 : 19)
       .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)
