@@ -1,3 +1,5 @@
+import { cycleForStage } from './cycle';
+
 export const RULES = {
   spawnMs: 1500,
   lifetimeMs: 8000,
@@ -12,15 +14,17 @@ export const RULES = {
 export const COOKIE_SOURCE_RADIUS = 48;
 
 export const COOKIE_TYPES = {
-  NORMAL: { hp: 1, multiplier: 1n, stagePoints: 1n, weightBp: 8000, texture: 'cookie', asset: '/cookie.svg' },
-  HARD: { hp: 3, multiplier: 6n, stagePoints: 3n, weightBp: 1500, texture: 'hard-cookie', asset: '/hard-cookie.svg' },
-  GOLDEN: { hp: 1, multiplier: 5n, stagePoints: 5n, weightBp: 500, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
+  NORMAL: { hp: 1, multiplier: 1n, stagePoints: 1n, tough: false, weightBp: 8000, texture: 'cookie', asset: '/cookie.svg' },
+  HARD: { hp: 3, multiplier: 6n, stagePoints: 3n, tough: true, weightBp: 1500, texture: 'hard-cookie', asset: '/hard-cookie.svg' },
+  GOLDEN: { hp: 1, multiplier: 5n, stagePoints: 5n, tough: false, weightBp: 500, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
+  REINFORCED: { hp: 5, multiplier: 8n, stagePoints: 5n, tough: true, weightBp: 1000, texture: 'reinforced-cookie', asset: '/reinforced-cookie.svg' },
+  TITAN: { hp: 9, multiplier: 14n, stagePoints: 8n, tough: true, weightBp: 500, texture: 'titan-cookie', asset: '/titan-cookie.svg' },
 } as const;
 
 export type CookieType = keyof typeof COOKIE_TYPES;
 export type Cookie = {
   id: number; type: CookieType; x: number; y: number; radius: number;
-  hp: number; maxHp: number; expiresAt: number; rewardMultiplier: bigint; stagePoints: bigint;
+  hp: number; maxHp: number; expiresAt: number; rewardMultiplier: bigint; stagePoints: bigint; tough: boolean;
 };
 export type Bounds = { width: number; height: number };
 export type PlayArea = { left: number; top: number; right: number; bottom: number };
@@ -29,18 +33,25 @@ export function cookieReward(cookie: Cookie, baseReward: bigint): bigint {
   return baseReward * cookie.rewardMultiplier;
 }
 
-export function cookieProbabilities(goldenBp: number = COOKIE_TYPES.GOLDEN.weightBp) {
+export function cookieProbabilities(goldenBp: number = COOKIE_TYPES.GOLDEN.weightBp, stageNumber = 1) {
+  if (!Number.isInteger(goldenBp) || goldenBp < 500 || goldenBp > 2500) throw new RangeError('Invalid Golden chance');
+  cycleForStage(stageNumber);
+  const reinforced = stageNumber >= 4 ? COOKIE_TYPES.REINFORCED.weightBp : 0;
+  const titan = stageNumber >= 9 ? COOKIE_TYPES.TITAN.weightBp : 0;
   const hard = COOKIE_TYPES.HARD.weightBp;
-  if (!Number.isInteger(goldenBp) || goldenBp < 0 || goldenBp + hard > 10_000) throw new RangeError('Invalid Golden chance');
-  return { NORMAL: 10_000 - hard - goldenBp, HARD: hard, GOLDEN: goldenBp };
+  return { NORMAL: 10_000 - hard - goldenBp - reinforced - titan, HARD: hard,
+    GOLDEN: goldenBp, REINFORCED: reinforced, TITAN: titan };
 }
 
-export function selectCookieType(roll: number, goldenBp: number = COOKIE_TYPES.GOLDEN.weightBp): CookieType {
-  const chances = cookieProbabilities(goldenBp);
+export function selectCookieType(roll: number, goldenBp: number = COOKIE_TYPES.GOLDEN.weightBp,
+  stageNumber = 1): CookieType {
+  const chances = cookieProbabilities(goldenBp, stageNumber);
   if (!Number.isInteger(roll) || roll < 0 || roll >= 10_000) throw new RangeError('Invalid spawn roll');
   if (roll < chances.NORMAL) return 'NORMAL';
   if (roll < chances.NORMAL + chances.HARD) return 'HARD';
-  return 'GOLDEN';
+  if (roll < chances.NORMAL + chances.HARD + chances.GOLDEN) return 'GOLDEN';
+  if (roll < chances.NORMAL + chances.HARD + chances.GOLDEN + chances.REINFORCED) return 'REINFORCED';
+  return 'TITAN';
 }
 
 export function advanceGameTime(now: number, delta: number, paused: boolean): number {
@@ -54,8 +65,11 @@ export function defaultArea(bounds: Bounds): PlayArea {
 export class SpawnManager {
   readonly active = new Map<number, Cookie>();
   private nextId = 0;
+  private nonToughSpawns = 0;
 
   constructor(private readonly random: () => number = Math.random) {}
+
+  resetFairness() { this.nonToughSpawns = 0; }
 
   private fits(x: number, y: number, radius: number, area: PlayArea, others: Cookie[]): boolean {
     return x - radius >= area.left + RULES.edge && x + radius <= area.right - RULES.edge &&
@@ -83,18 +97,33 @@ export class SpawnManager {
   }
 
   spawn(bounds: Bounds, now: number, radius: number = RULES.radius, area = defaultArea(bounds),
-    options: { goldenChanceBp?: number; forcedType?: CookieType; hardHp?: number } = {}): Cookie | undefined {
-    const hardHp = options.hardHp ?? COOKIE_TYPES.HARD.hp;
+    options: { goldenChanceBp?: number; forcedType?: CookieType; hardHp?: number;
+      stageNumber?: number; toughNeeded?: boolean } = {}): Cookie | undefined {
+    const stageNumber = options.stageNumber ?? 1;
+    const { cycleIndex } = cycleForStage(stageNumber);
+    const hardHp = options.hardHp ?? COOKIE_TYPES.HARD.hp + cycleIndex;
     if (!Number.isSafeInteger(hardHp) || hardHp < 1) throw new RangeError('Invalid Hard HP');
     if (this.active.size >= RULES.maxCookies) return;
     const position = this.position(radius, area, [...this.active.values()]);
     if (!position) return;
-    const type = options.forcedType ?? selectCookieType(Math.floor(this.random() * 10_000), options.goldenChanceBp);
+    let type = options.forcedType ?? selectCookieType(Math.floor(this.random() * 10_000), options.goldenChanceBp, stageNumber);
+    if (options.toughNeeded && this.nonToughSpawns >= 6 && !COOKIE_TYPES[type].tough) {
+      const unlocked: CookieType[] = stageNumber < 4 ? ['HARD'] : stageNumber < 9 ? ['HARD', 'REINFORCED'] :
+        ['HARD', 'REINFORCED', 'TITAN'];
+      type = unlocked[Math.floor(this.random() * unlocked.length)];
+    }
+    if ((type === 'REINFORCED' && stageNumber < 4) || (type === 'TITAN' && stageNumber < 9)) {
+      throw new RangeError('Cookie type locked');
+    }
     const definition = COOKIE_TYPES[type];
-    const hp = type === 'HARD' ? hardHp : definition.hp;
+    const hp = type === 'HARD' ? hardHp : type === 'REINFORCED' ? 5 + cycleIndex :
+      type === 'TITAN' ? 9 + 2 * cycleIndex : definition.hp;
+    if (!Number.isSafeInteger(hp)) throw new RangeError('Cookie HP exceeds safe integer');
     const cookie = { id: this.nextId++, type, ...position, radius, hp, maxHp: hp,
-      expiresAt: now + RULES.lifetimeMs, rewardMultiplier: definition.multiplier, stagePoints: definition.stagePoints };
+      expiresAt: now + RULES.lifetimeMs, rewardMultiplier: definition.multiplier,
+      stagePoints: definition.stagePoints, tough: definition.tough };
     this.active.set(cookie.id, cookie);
+    this.nonToughSpawns = options.toughNeeded && !cookie.tough ? this.nonToughSpawns + 1 : 0;
     return cookie;
   }
 

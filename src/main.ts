@@ -130,13 +130,14 @@ class GameScene extends Phaser.Scene {
     if (this.modalShop || this.stage.status !== 'RUNNING') return;
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
-        hardHp: hardHpForStage(this.stage.stageNumber), forcedType: first ? 'NORMAL' : undefined });
+        stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
+        forcedType: first ? 'NORMAL' : undefined });
     if (cookie) this.drawCookie(cookie);
   }
 
   private drawCookie(cookie: Cookie) {
     const sprite = this.add.image(cookie.x, cookie.y, COOKIE_TYPES[cookie.type].texture).setAlpha(0).setScale(cookie.radius / (COOKIE_SOURCE_RADIUS * 2));
-    if (cookie.type === 'HARD') {
+    if (cookie.tough) {
       const cracks = this.add.image(cookie.x, cookie.y, 'hard-cracks').setScale(cookie.radius / COOKIE_SOURCE_RADIUS).setDepth(1);
       this.cracks.set(cookie.id, cracks);
       this.updateCracks(cookie);
@@ -184,7 +185,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private updateCracks(cookie: Cookie) {
-    this.cracks.get(cookie.id)?.setAlpha(cookie.hp === 1 ? 1 : 0.5)
+    this.cracks.get(cookie.id)?.setAlpha(0.3 + 0.7 * (1 - cookie.hp / cookie.maxHp))
       .setVisible(!this.modalShop && cookie.hp < cookie.maxHp);
   }
 
