@@ -76,8 +76,9 @@ describe('UpgradeManager', () => {
     economy.recordHit(10n ** 100n);
     for (let i = 0; i < 100; i++) expect(upgrades.buy('value', economy)).toBe(true);
     expect(upgrades.reward).toBe(101n);
-    expect(upgrades.cost('value')).toBe(11_414n);
-    expect(valueCost(10n ** 10n)).toBe(100_000_000_140_000_000_014n);
+    expect(upgrades.cost('value')).toBe(239_694n);
+    const hugeLevel = 10n ** 10n;
+    expect(valueCost(hugeLevel)).toBe((14n * (hugeLevel + 1n) + hugeLevel * hugeLevel) * (1n + hugeLevel / 5n));
     expect(() => valueCost(-1n)).toThrow(RangeError);
   });
 
@@ -94,9 +95,9 @@ describe('UpgradeManager', () => {
 
   it('simulates each zero-balance purchase at two cookies per second', () => {
     const samples = [
-      [0n, 14n, 700n], [5n, 109n, 909n], [10n, 254n, 1155n],
-      [20n, 694n, 1653n], [30n, 1334n, 2152n],
-      [50n, 3214n, 3151n], [100n, 11414n, 5651n],
+      [0n, 14n, 700n], [5n, 218n, 1817n], [10n, 762n, 3464n],
+      [20n, 3470n, 8262n], [30n, 9338n, 15062n],
+      [50n, 35354n, 34661n], [100n, 239694n, 118661n],
     ] as const;
     let previousCost = 0n;
     let previousTime = 0n;
@@ -111,7 +112,7 @@ describe('UpgradeManager', () => {
       previousCost = cost;
       previousTime = timeHundredths;
     }
-    expect(previousTime).toBeLessThan(6000n);
+    expect(previousTime).toBeLessThan(120000n);
   });
 
   it('unlocks two Click Power levels only after each completed cycle', () => {
@@ -155,5 +156,22 @@ describe('UpgradeManager', () => {
     expect(upgrades.buy('power', economy)).toBe(false);
     expect(upgrades.level('power')).toBe(2n);
     expect(economy.balance).toBe(0n);
+  });
+
+  it('raises only later Value and Spawn Speed prices while keeping Click Power costs', () => {
+    const economy = new Economy();
+    const upgrades = new UpgradeManager();
+    economy.recordHit(100_000n);
+    expect([0n, 1n, 2n, 3n, 4n, 5n, 15n].map(valueCost))
+      .toEqual([14n, 29n, 46n, 65n, 86n, 218n, 1796n]);
+    const speedPrices = [];
+    for (let level = 0; level <= 7; level++) {
+      speedPrices.push(upgrades.cost('speed'));
+      expect(upgrades.buy('speed', economy)).toBe(true);
+    }
+    expect(speedPrices).toEqual([20n, 30n, 45n, 68n, 204n, 304n, 456n, 684n]);
+    expect(upgrades.cost('power')).toBe(25n);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.cost('power')).toBe(38n);
   });
 });

@@ -1,18 +1,20 @@
 import { bossForStage } from './boss';
 import { cycleForStage } from './cycle';
 
-const TARGETS = [12n, 20n, 30n, 40n, 55n, 70n, 85n, 105n, 130n, 160n, 190n, 220n] as const;
+const TARGETS = [12n, 18n, 23n, 29n, 35n, 42n, 48n, 55n, 63n, 72n, 82n, 90n] as const;
 const DURATIONS_MS = [30_000, 40_000, 50_000, 55_000, 60_000, 65_000, 70_000, 75_000, 80_000, 85_000, 90_000, 90_000] as const;
 
 export type StageStatus = 'RUNNING' | 'BOSS_FIGHT' | 'COMPLETED' | 'FAILED';
 
 export function stageConfig(stageNumber: number) {
   if (!Number.isSafeInteger(stageNumber) || stageNumber < 1) throw new RangeError('Invalid stage number');
-  const index = stageNumber - 1;
+  const { cycleIndex, stageInCycle } = cycleForStage(stageNumber);
+  const index = stageInCycle - 1;
   return {
-    target: index < TARGETS.length ? TARGETS[index] : 220n + 20n * BigInt(stageNumber - 12),
-    durationMs: index < DURATIONS_MS.length ? DURATIONS_MS[index] : 90_000,
+    target: TARGETS[index] + BigInt(Math.min(3 * cycleIndex, 30)),
+    durationMs: cycleIndex === 0 ? DURATIONS_MS[index] : 90_000,
     isBossCheckpoint: stageNumber % 3 === 0,
+    toughRequired: stageInCycle <= 3 ? 0 : stageInCycle <= 6 ? 1 : stageInCycle <= 9 ? 2 : 3,
   };
 }
 
@@ -20,7 +22,10 @@ export class StageManager {
   stageNumber = 1;
   target = 0n;
   progress = 0n;
-  earned = 0n;
+  pointsEarned = 0n;
+  currencyEarned = 0n;
+  toughRequired = 0;
+  toughDestroyed = 0;
   durationMs = 0;
   remainingMs = 0;
   status: StageStatus = 'RUNNING';
@@ -40,10 +45,14 @@ export class StageManager {
     }
     this.stageNumber = stageNumber;
     this.target = config.target;
+    if (!Number.isSafeInteger(config.toughRequired) || config.toughRequired < 0) throw new RangeError('Invalid Tough requirement');
+    this.toughRequired = config.toughRequired;
     this.durationMs = config.durationMs;
     this.remainingMs = config.durationMs;
     this.progress = 0n;
-    this.earned = 0n;
+    this.pointsEarned = 0n;
+    this.currencyEarned = 0n;
+    this.toughDestroyed = 0;
     this.status = 'RUNNING';
   }
 
@@ -55,12 +64,14 @@ export class StageManager {
     return this.status;
   }
 
-  recordReward(amount: bigint): boolean {
-    if (amount <= 0n) throw new RangeError('Reward must be positive');
+  recordCollection(stagePoints: bigint, currencyReward: bigint, tough = false): boolean {
+    if (stagePoints <= 0n || currencyReward <= 0n) throw new RangeError('Collection rewards must be positive');
     if (this.status !== 'RUNNING') return false;
-    this.earned += amount;
-    this.progress = this.earned < this.target ? this.earned : this.target;
-    if (this.progress === this.target) {
+    this.pointsEarned += stagePoints;
+    this.currencyEarned += currencyReward;
+    if (tough) this.toughDestroyed++;
+    this.progress = this.pointsEarned < this.target ? this.pointsEarned : this.target;
+    if (this.progress === this.target && this.toughDestroyed >= this.toughRequired) {
       const boss = bossForStage(this.stageNumber);
       if (boss) {
         this.status = 'BOSS_FIGHT';

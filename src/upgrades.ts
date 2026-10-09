@@ -14,7 +14,7 @@ export const UPGRADE_IDS = Object.keys(UPGRADES) as UpgradeId[];
 
 export function valueCost(level: bigint): bigint {
   if (level < 0n) throw new RangeError('Level must be nonnegative');
-  return UPGRADES.value.baseCost * (level + 1n) + UPGRADES.value.quadraticCost * level * level;
+  return (UPGRADES.value.baseCost * (level + 1n) + UPGRADES.value.quadraticCost * level * level) * (1n + level / 5n);
 }
 
 export function powerCost(level: bigint): bigint {
@@ -44,7 +44,8 @@ export class UpgradeManager {
     if (id === 'value') return valueCost(level);
     if (id === 'power') return powerCost(level);
     const denominator = 2n ** level;
-    return (upgrade.baseCost * 3n ** level + denominator - 1n) / denominator;
+    const cost = (upgrade.baseCost * 3n ** level + denominator - 1n) / denominator;
+    return id === 'speed' ? cost * (1n + level / 4n) : cost;
   }
 
   buy(id: UpgradeId, economy: Economy): boolean {

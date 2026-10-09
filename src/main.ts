@@ -115,7 +115,7 @@ class GameScene extends Phaser.Scene {
       return;
     }
     if (this.modalShop) return;
-    for (const id of this.model.expire(this.gameplayNow)) this.removeCookie(id);
+    for (const cookie of this.model.expire(this.gameplayNow)) this.removeCookie(cookie.id);
   }
 
   private get sideShop() { return this.scale.width >= 560 && this.scale.height >= 320; }
@@ -130,13 +130,15 @@ class GameScene extends Phaser.Scene {
     if (this.modalShop || this.stage.status !== 'RUNNING') return;
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
-        hardHp: hardHpForStage(this.stage.stageNumber), forcedType: first ? 'NORMAL' : undefined });
+        stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
+        toughNeeded: this.stage.toughDestroyed < this.stage.toughRequired,
+        forcedType: first ? 'NORMAL' : undefined });
     if (cookie) this.drawCookie(cookie);
   }
 
   private drawCookie(cookie: Cookie) {
     const sprite = this.add.image(cookie.x, cookie.y, COOKIE_TYPES[cookie.type].texture).setAlpha(0).setScale(cookie.radius / (COOKIE_SOURCE_RADIUS * 2));
-    if (cookie.type === 'HARD') {
+    if (cookie.tough) {
       const cracks = this.add.image(cookie.x, cookie.y, 'hard-cracks').setScale(cookie.radius / COOKIE_SOURCE_RADIUS).setDepth(1);
       this.cracks.set(cookie.id, cracks);
       this.updateCracks(cookie);
@@ -157,7 +159,8 @@ class GameScene extends Phaser.Scene {
       this.cracks.get(cookie.id)?.destroy();
       this.cracks.delete(cookie.id);
       this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
-      this.floatText(cookie, `+${formatAmount(hit.reward!)}`, cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
+      this.floatText(cookie, `+${formatAmount(hit.stagePoints!)} SP\n+${formatAmount(hit.currencyReward!)} Cookies`,
+        cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
       if (cookie.type === 'GOLDEN') {
         const halo = this.add.circle(cookie.x, cookie.y, cookie.radius + 5).setStrokeStyle(3, 0xffd45f).setDepth(1);
         this.tweens.add({ targets: halo, scale: 1.35, alpha: 0, duration: 260, onComplete: () => halo.destroy() });
@@ -174,8 +177,10 @@ class GameScene extends Phaser.Scene {
       const oldest = this.effects.shift();
       if (oldest) { this.tweens.killTweensOf(oldest); oldest.destroy(); }
     }
-    const effect = this.add.text(cookie.x, cookie.y - 24, value, {
-      fontFamily: 'system-ui, sans-serif', fontSize: '26px', fontStyle: 'bold', color,
+    const effect = this.add.text(value.includes('\n') ? Math.max(85, Math.min(this.scale.width - 85, cookie.x)) : cookie.x,
+      cookie.y - 24, value, {
+      fontFamily: 'system-ui, sans-serif', fontSize: value.includes('\n') ? '18px' : '26px',
+      fontStyle: 'bold', color, align: 'center',
     }).setOrigin(0.5).setDepth(3);
     this.effects.push(effect);
     this.tweens.add({ targets: effect, y: effect.y - 38, alpha: 0, duration: 600,
@@ -183,7 +188,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private updateCracks(cookie: Cookie) {
-    this.cracks.get(cookie.id)?.setAlpha(cookie.hp === 1 ? 1 : 0.5)
+    this.cracks.get(cookie.id)?.setAlpha(0.3 + 0.7 * (1 - cookie.hp / cookie.maxHp))
       .setVisible(!this.modalShop && cookie.hp < cookie.maxHp);
   }
 
@@ -291,6 +296,7 @@ class GameScene extends Phaser.Scene {
   private advanceStage() {
     const advanced = this.stage.status === 'COMPLETED' ? this.stage.continue() : this.stage.retry();
     if (!advanced) return;
+    this.model.resetFairness();
     this.lastBossBonus = 0n;
     this.lastBossName = '';
     this.shownSeconds = -1;
@@ -315,8 +321,12 @@ class GameScene extends Phaser.Scene {
     this.stageText.setText(`Stage ${this.stage.stageNumber} · ${kingdomName(this.stage.cycle.cycleNumber)}`)
       .setFontSize(this.scale.width < 400 ? 14 : 17);
     const bossFight = this.stage.status === 'BOSS_FIGHT' && this.boss !== null;
-    this.progressText.setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
-      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}${this.stage.isBossCheckpoint ? ' · Boss ahead' : ' stage cookies'}`);
+    const missingTough = this.stage.toughRequired - this.stage.toughDestroyed;
+    this.progressText.setFontSize(this.scale.width < 400 ? 12 : 14).setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
+      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP${missingTough > 0 && this.stage.progress === this.stage.target ?
+        ` · Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
+        this.stage.toughRequired ? ` · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}` :
+          this.stage.isBossCheckpoint ? ' · Boss ahead' : ''}`);
     this.progressFill.setSize(this.progressWidth * (bossFight ? this.boss!.hp / this.boss!.config.bodyHp : this.stage.progressPercent / 100), 10)
       .setFillStyle(bossFight ? 0xb84d35 : 0xc97831);
     this.bossStatusText.setText(bossFight ? this.boss!.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2× DAMAGE' :
@@ -334,10 +344,10 @@ class GameScene extends Phaser.Scene {
     for (const id of UPGRADE_IDS) {
       const upgrade = UPGRADES[id];
       const cost = this.upgrades.cost(id);
-      const effect = id === 'value' ? `+${formatAmount(this.upgrades.reward)} / cookie` :
+      const effect = id === 'value' ? `${formatAmount(this.upgrades.reward)} Cookies / Normal` :
         id === 'size' ? `Radius ${this.upgrades.radius}px` :
-        id === 'speed' ? `Every ${this.upgrades.spawnMs}ms` :
-        id === 'power' ? `Damage ${this.upgrades.damage} / click` : `Golden chance ${this.upgrades.goldenChanceBp / 100}%`;
+        id === 'speed' ? `${this.upgrades.spawnMs} ms / spawn` :
+        id === 'power' ? `${this.upgrades.damage} damage / click` : `Golden chance ${this.upgrades.goldenChanceBp / 100}%`;
       const status = !upgrade.available ? 'Price —  ·  Locked: M3' : cost === null && id === 'power' ?
         `Unlock at Stage ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : cost === null ? 'Price —  ·  MAX' :
         `Price ${formatAmount(cost)}  ·  ${this.economy.balance >= cost ? 'BUY' : 'Need more'}`;
@@ -429,9 +439,10 @@ class GameScene extends Phaser.Scene {
     const cycleComplete = this.stage.status === 'COMPLETED' && this.stage.cycle.stageInCycle === 12;
     const result = cycleComplete ? `${kingdomName(this.stage.cycle.cycleNumber).toUpperCase()} COMPLETE` :
       this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP';
-    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} · Earned ${formatAmount(this.stage.earned)}`;
+    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}\nEarned ${formatAmount(this.stage.currencyEarned)} Cookies`;
     this.terminalBackground.setSize(width, height).setVisible(visible);
-    this.terminalText.setPosition(width / 2, height / 2 - 35).setFontSize(width < 300 ? 16 : 19)
+    this.terminalText.setPosition(width / 2, height / 2 - 35)
+      .setFontSize(this.scale.height < 420 ? 14 : 19).setLineSpacing(this.scale.height < 420 ? 3 : 8)
       .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)
       .setVisible(visible);
     this.terminalButton.setPosition(width / 2, height / 2 + 66).setSize(Math.min(190, width - 36), 48).setVisible(visible);
