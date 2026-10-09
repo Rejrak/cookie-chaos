@@ -4,6 +4,7 @@ import { Economy, formatAmount } from './economy';
 import { applyBossHit, applyCookieHit, applyDamage, applyBombHit, applyExpiry } from './gameplay';
 import { HealthManager, type DamageResult } from './health';
 import { BOSSES, BossManager } from './boss';
+import { BossAttackController } from './boss-attacks';
 import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import { hardHpForStage, kingdomName } from './cycle';
@@ -16,7 +17,10 @@ class GameScene extends Phaser.Scene {
   private stage = new StageManager();
   private health = new HealthManager();
   private boss: BossManager | null = null;
+  private bossAttack: BossAttackController | null = null;
   private bossSprite?: Phaser.GameObjects.Image;
+  private parryTarget!: Phaser.GameObjects.Arc;
+  private parryLabel!: Phaser.GameObjects.Text;
   private bossGuard?: Phaser.GameObjects.Shape;
   private bossPanel!: Phaser.GameObjects.Rectangle;
   private bossStatusText!: Phaser.GameObjects.Text;
@@ -76,6 +80,14 @@ class GameScene extends Phaser.Scene {
     this.bossProtectionText = this.add.text(20, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: '#713b20' }).setDepth(2);
     this.bossProtectionBack = this.add.rectangle(20, 0, 1, 8, 0xd6b88a).setOrigin(0).setDepth(2);
     this.bossProtectionFill = this.add.rectangle(20, 0, 1, 8, 0x6685a1).setOrigin(0).setDepth(3);
+    this.parryTarget = this.add.circle(0, 0, 27, 0x9a5540).setStrokeStyle(4, 0xffffff).setDepth(7).setVisible(false);
+    this.parryLabel = this.add.text(0, 0, 'PARRY', { fontFamily: 'system-ui, sans-serif',
+      fontSize: '13px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(8).setVisible(false);
+    this.parryTarget.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      if (this.stage.status !== 'BOSS_FIGHT' || !this.bossAttack?.attemptParry()) return;
+      this.floatText(this.parryTarget, 'PARRY!', '#426da0');
+      this.renderAttack();
+    });
     this.shopBackground = this.add.rectangle(0, 0, 1, 1, 0xffe5b6).setOrigin(0).setDepth(4).setInteractive();
     this.shopTitle = this.add.text(0, 0, 'UPGRADES', { ...heading, fontSize: '20px' }).setDepth(5);
     for (const id of UPGRADE_IDS) {
@@ -114,6 +126,11 @@ class GameScene extends Phaser.Scene {
     this.updateTimer();
     if (status === 'BOSS_FIGHT') {
       if (this.boss?.tick(this.gameplayNow)) this.updateHud();
+      const hits = this.bossAttack?.tick(delta, this.boss?.phase ?? 'NORMAL') ?? 0;
+      for (let index = 0; index < hits; index++) {
+        this.takeDamage(1, this.bossSprite?.x ?? 0, this.bossSprite?.y ?? 0);
+      }
+      this.renderAttack();
       return;
     }
     if (this.modalShop) return;
@@ -229,6 +246,10 @@ class GameScene extends Phaser.Scene {
     this.bossSprite = undefined;
     this.bossGuard?.destroy();
     this.bossGuard = undefined;
+    this.bossAttack?.stop();
+    this.bossAttack = null;
+    this.parryTarget.setVisible(false).disableInteractive();
+    this.parryLabel.setVisible(false);
     this.boss = null;
   }
 
@@ -237,6 +258,7 @@ class GameScene extends Phaser.Scene {
     this.clearCookies();
     this.clearEffects();
     this.boss = new BossManager(this.stage.stageNumber);
+    this.bossAttack = new BossAttackController(this.stage.stageNumber);
     this.bossSprite = this.add.image(0, 0, this.boss.config.texture).setDepth(2)
       .setInteractive(new Phaser.Geom.Circle(64, 64, 60), Phaser.Geom.Circle.Contains);
     this.bossSprite.on(Phaser.Input.Events.POINTER_DOWN, () => this.hitBoss());
@@ -248,6 +270,7 @@ class GameScene extends Phaser.Scene {
     this.shownSeconds = -1;
     this.updateHud();
     this.layout();
+    this.renderAttack();
   }
 
   private hitBoss() {
@@ -270,6 +293,7 @@ class GameScene extends Phaser.Scene {
             'DOUBLE DAMAGE ENDED' : hit.phase === 'BODY' ? 'SHIELD BROKEN' : 'BODY EXPOSED', '#a94b28');
     }
     this.updateHud();
+    this.renderAttack();
     if (hit.defeated) {
       this.lastBossName = this.boss.config.name;
       this.lastBossBonus = hit.reward!;
@@ -289,6 +313,20 @@ class GameScene extends Phaser.Scene {
     if (this.bossGuard) {
       this.bossGuard.setPosition(x, this.boss.config.id === 'knight' ? y + radius * 0.25 : y).setScale(radius / 60);
     }
+    const parryX = Math.max(30, x - radius - 34);
+    this.parryTarget.setPosition(parryX, y);
+    this.parryLabel.setPosition(parryX, y);
+  }
+
+  private renderAttack() {
+    const attack = this.bossAttack;
+    const visible = this.stage.status === 'BOSS_FIGHT' &&
+      (attack?.state === 'WARNING' || attack?.state === 'PARRY_WINDOW');
+    this.parryTarget.setVisible(visible);
+    this.parryLabel.setVisible(visible).setText(attack?.state === 'PARRY_WINDOW' ? 'PARRY' : 'WAIT');
+    if (attack?.canParry && visible) this.parryTarget.setFillStyle(0x3d877c).setInteractive();
+    else this.parryTarget.setFillStyle(0x9a5540).disableInteractive();
+    if (visible) this.bossStatusText.setText(`${attack.name} ${attack.strike}/${attack.strikesTotal} · ${attack.state === 'PARRY_WINDOW' ? 'PARRY NOW' : 'WARNING'}`);
   }
 
   private startSpawnTimer() {
