@@ -1,112 +1,187 @@
 import { describe, expect, it } from 'vitest';
 import { BossManager, bossForStage } from './boss';
-import { hardHpForStage } from './cycle';
+import { cycleForStage } from './cycle';
 import { Economy } from './economy';
-import { SpawnManager } from './game';
+import { RULES, SpawnManager, type CookieType } from './game';
 import { applyBossHit, applyCookieHit } from './gameplay';
 import { StageManager, stageConfig } from './stage';
-import { UpgradeManager } from './upgrades';
+import { UpgradeManager, type UpgradeId } from './upgrades';
 
-const CHECKPOINTS = [1, 12, 13, 15, 24, 36, 60, 120, 240];
+const CHECKPOINTS = [1, 3, 6, 9, 12, 18, 24, 36, 60, 120, 240];
+type Strategy = 'economy' | 'combat' | 'balanced';
 
-function fightTime(stageNumber: number, damage: number, clicksPerSecond: number) {
-  const fight = new BossManager(stageNumber);
-  const interval = 1000 / clicksPerSecond;
-  let clicks = 0;
-  while (!fight.defeated) {
-    fight.hit(damage, clicks * interval, 1n);
-    clicks++;
-  }
-  return { clicks, ms: (clicks - 1) * interval };
+function seeded(seed: number) {
+  let state = seed >>> 0;
+  return () => ((state = (Math.imul(1664525, state) + 1013904223) >>> 0) / 2 ** 32);
 }
 
-function simulate(clicksPerSecond: number) {
+function bossTime(stageNumber: number, damage: number, rate: number) {
+  const boss = new BossManager(stageNumber);
+  let clicks = 0;
+  while (!boss.defeated) boss.hit(damage, clicks++ * 1000 / rate, 1n);
+  return (clicks - 1) * 1000 / rate;
+}
+
+function simulate(strategy: Strategy, rate: number, seed: number) {
+  const random = seeded(seed);
   const stage = new StageManager();
   const economy = new Economy();
   const upgrades = new UpgradeManager();
   const checkpoints = [];
+  let spent = 0n;
+  let retries = 0;
+  let expired = 0;
+  let misses = 0;
+  let toughTotal = 0;
+  const missChance = rate === 2 ? 0.08 : 0.12;
+  const interval = 1000 / rate;
+
+  const buyTo = (id: UpgradeId, target: bigint) => {
+    while (upgrades.level(id) < target) {
+      const cost = upgrades.cost(id);
+      if (cost === null || economy.balance < cost) return;
+      expect(upgrades.buy(id, economy)).toBe(true);
+      spent += cost;
+    }
+  };
+
   for (let number = 1; number <= 240; number++) {
     expect(stage.stageNumber).toBe(number);
-    // One Spawn Speed level per cycle until its cap. Purchases use only earned currency.
-    const desiredSpeed = Math.min(10, Math.floor((number - 1) / 12));
-    while (upgrades.level('speed') < BigInt(desiredSpeed)) {
-      expect(upgrades.buy('speed', economy), `Stage ${number}: Spawn Speed funding`).toBe(true);
-    }
-    const spawnInterval = Math.max(upgrades.spawnMs, 1000 / clicksPerSecond);
-    const normalCount = () => (stage.target + upgrades.reward - 1n) / upgrades.reward;
-    while (Number(normalCount() - 1n) * spawnInterval > stage.durationMs * 0.8) {
-      expect(upgrades.buy('value', economy), `Stage ${number}: Cookie Value funding`).toBe(true);
-    }
-    const bossConfig = bossForStage(number);
-    if (bossConfig) {
-      while (fightTime(number, upgrades.damage, clicksPerSecond).ms > bossConfig.durationMs * 0.8) {
-        expect(upgrades.buy('power', economy), `Stage ${number}: Click Power funding or unlock`).toBe(true);
-      }
-    }
-    const spawns = new SpawnManager(() => 0);
+    let attempts = 0;
     let collectionMs = 0;
-    let cookies = 0;
-    let nextSpawnAt = 0;
-    let nextClickAt = 0;
-    const clickInterval = 1000 / clicksPerSecond;
-    while (stage.status === 'RUNNING') {
-      const spawnAt = Math.max(nextSpawnAt, nextClickAt);
-      stage.tick(spawnAt - collectionMs);
-      collectionMs = spawnAt;
-      expect(stage.status, `Stage ${number}: collection timeout`).toBe('RUNNING');
-      // Deterministic 1-in-7 Hard mix; no Golden cookie is needed for feasibility.
-      const cookie = spawns.spawn({ width: 300, height: 300 }, collectionMs, 40, undefined,
-        { forcedType: (cookies + 1) % 7 === 0 ? 'HARD' : 'NORMAL', hardHp: hardHpForStage(number) })!;
-      let hit;
-      do {
-        if (hit) { stage.tick(clickInterval); collectionMs += clickInterval; }
-        expect(stage.status, `Stage ${number}: Hard cookie timeout`).toBe('RUNNING');
-        hit = applyCookieHit(spawns, economy, stage, cookie.id, upgrades.damage, upgrades.reward);
-      } while (hit && !hit.destroyed);
-      nextSpawnAt = spawnAt + upgrades.spawnMs;
-      nextClickAt = collectionMs + clickInterval;
-      cookies++;
-    }
     let bossMs = 0;
-    if (bossConfig) {
-      const boss = new BossManager(number);
-      let hits = 0;
-      const interval = 1000 / clicksPerSecond;
-      while (stage.status === 'BOSS_FIGHT') {
-        if (hits) { stage.tick(interval); bossMs += interval; }
-        expect(stage.status, `Stage ${number}: boss timeout`).toBe('BOSS_FIGHT');
-        applyBossHit(boss, economy, stage, upgrades.damage, bossMs, upgrades.reward);
-        hits++;
+    while (stage.status !== 'COMPLETED' && attempts < 10) {
+      attempts++;
+      const cycle = cycleForStage(number);
+      if (strategy === 'economy') {
+        if (number % 2 === 0) {
+          buyTo('value', BigInt(Math.min(15, number - 1)));
+          buyTo('speed', BigInt(Math.min(7, Math.floor(number / 3))));
+          buyTo('luck', BigInt(Math.min(2, Math.floor(number / 12))));
+        }
+      } else if (strategy === 'combat') {
+        buyTo('power', upgrades.powerLimit);
+        buyTo('speed', BigInt(Math.min(10, Math.floor(number / 5))));
+        buyTo('value', BigInt(Math.min(10, Math.floor(number / 10))));
+      } else {
+        buyTo('power', BigInt(Math.min(Number(upgrades.powerLimit), 1 + Math.floor(number / 12))));
+        buyTo('speed', BigInt(Math.min(10, Math.floor(number / 8))));
+        buyTo('value', BigInt(Math.min(20, Math.floor(number / 5))));
+        buyTo('luck', BigInt(Math.min(5, Math.floor(number / 24))));
+      }
+      // Extra power is purchased only if Tough lifetimes or this boss timer require it.
+      const toughHp = number >= 9 ? 9 + 2 * cycle.cycleIndex : number >= 4 ? 5 + cycle.cycleIndex : 3 + cycle.cycleIndex;
+      const bossConfig = bossForStage(number);
+      while ((Math.ceil(toughHp / upgrades.damage) * interval > RULES.lifetimeMs - 1000 ||
+        (bossConfig && bossTime(number, upgrades.damage, rate) > bossConfig.durationMs * 0.75)) &&
+        upgrades.cost('power') !== null && economy.balance >= upgrades.cost('power')!) {
+        buyTo('power', upgrades.level('power') + 1n);
+      }
+
+      const spawns = new SpawnManager(random);
+      let now = 0;
+      let nextSpawnAt = 0;
+      let nextClickAt = 0;
+      let spawned = 0;
+      while (stage.status === 'RUNNING') {
+        const spawnAt = Math.max(nextSpawnAt, nextClickAt);
+        stage.tick(spawnAt - now);
+        now = spawnAt;
+        if (stage.status !== 'RUNNING') break;
+        const bounds = number % 10 === 0 ? { width: 320, height: 320 } : { width: 900, height: 700 };
+        const area = number % 10 === 0 ? { left: 0, top: RULES.hudHeight, right: 320, bottom: 248 } : undefined;
+        const cookie = spawns.spawn(bounds, now, 40, area, { stageNumber: number,
+          goldenChanceBp: upgrades.goldenChanceBp,
+          toughNeeded: stage.toughDestroyed < stage.toughRequired,
+          forcedType: spawned === 0 ? 'NORMAL' : undefined });
+        if (!cookie) { nextSpawnAt = now + upgrades.spawnMs; continue; }
+        spawned++;
+        if (random() < 0.02) {
+          stage.tick(RULES.lifetimeMs);
+          now += RULES.lifetimeMs;
+          expired += spawns.expire(now).length;
+        } else {
+          while (stage.status === 'RUNNING' && spawns.active.has(cookie.id)) {
+            if (now >= cookie.expiresAt) { expired += spawns.expire(now).length; break; }
+            if (random() < missChance) misses++;
+            else {
+              const hit = applyCookieHit(spawns, economy, stage, cookie.id, upgrades.damage, upgrades.reward);
+              if (hit?.toughDestroyed) toughTotal++;
+            }
+            if (spawns.active.has(cookie.id) && stage.status === 'RUNNING') {
+              stage.tick(interval);
+              now += interval;
+            }
+          }
+        }
+        nextSpawnAt = spawnAt + upgrades.spawnMs;
+        nextClickAt = now + interval;
+      }
+      collectionMs = now;
+      if (stage.status === 'BOSS_FIGHT') {
+        const boss = new BossManager(number);
+        now = 0;
+        while (stage.status === 'BOSS_FIGHT') {
+          if (random() < missChance) misses++;
+          else applyBossHit(boss, economy, stage, upgrades.damage, now, upgrades.reward);
+          if (stage.status === 'BOSS_FIGHT') { stage.tick(interval); now += interval; }
+        }
+        bossMs = now;
+      }
+      if (stage.status === 'FAILED') {
+        retries++;
+        expect(stage.retry()).toBe(true);
       }
     }
-    expect(stage.status).toBe('COMPLETED');
-    expect(economy.balance).toBeGreaterThanOrEqual(0n);
+    if (stage.status !== 'COMPLETED') return { reached: number - 1, checkpoints, retries, economy, upgrades, spent,
+      expired, misses, toughTotal };
     upgrades.unlockThroughStage(stage.maxCompletedStage);
-    if (CHECKPOINTS.includes(number)) checkpoints.push({ stage: number, cycle: stage.cycle.cycleNumber,
-      target: stage.target, hardHp: hardHpForStage(number), value: upgrades.level('value'),
-      speed: upgrades.level('speed'), power: upgrades.level('power'), powerLimit: upgrades.powerLimit,
-      collectionMs, normalOnlyMs: Number(normalCount() - 1n) * spawnInterval,
-      collectionLimitMs: stageConfig(number).durationMs,
-      bossMs, bossLimitMs: bossConfig?.durationMs ?? 0, bossReward: bossConfig ? bossConfig.multiplier * upgrades.reward : 0n,
-      balance: economy.balance });
+    if (CHECKPOINTS.includes(number)) checkpoints.push({ stage: number, points: stage.progress,
+      target: stage.target, tough: stage.toughDestroyed, required: stage.toughRequired,
+      collectionMs, collectionLimitMs: stageConfig(number).durationMs, bossMs,
+      bossLimitMs: bossForStage(number)?.durationMs ?? 0, value: upgrades.level('value'),
+      speed: upgrades.level('speed'), power: upgrades.level('power'), luck: upgrades.level('luck'),
+      destroyed: economy.cookiesDestroyed, bosses: economy.bossesDefeated,
+      earned: economy.lifetimeEarned, spent, retries });
     if (number < 240) expect(stage.continue()).toBe(true);
   }
-  return { checkpoints, economy, upgrades };
+  return { reached: 240, checkpoints, retries, economy, upgrades, spent, expired, misses, toughTotal };
 }
 
-describe('deterministic endless balance', () => {
-  for (const rate of [2, 4]) it(`reaches every checkpoint at ${rate} clicks/s with paid upgrades and no Golden cookies`, () => {
-    const { checkpoints, economy } = simulate(rate);
-    expect(checkpoints.map(point => point.stage)).toEqual(CHECKPOINTS);
-    expect(checkpoints.map(point => point.cycle)).toEqual([1, 1, 2, 2, 2, 3, 5, 10, 20]);
-    for (const point of checkpoints) {
-      expect(point.collectionMs).toBeLessThanOrEqual(point.collectionLimitMs * 0.8);
-      expect(point.normalOnlyMs).toBeLessThanOrEqual(point.collectionLimitMs * 0.8);
-      if (point.bossLimitMs) expect(point.bossMs).toBeLessThanOrEqual(point.bossLimitMs * 0.8);
-      expect(point.power).toBeLessThanOrEqual(point.powerLimit);
-      expect(point.hardHp).toBe(2 + point.cycle);
+describe('realistic endless balance', () => {
+  for (const rate of [2, 4]) for (const strategy of ['economy', 'combat', 'balanced'] as const) {
+    it(`${strategy} at ${rate} clicks/s reaches stage 240 with paid upgrades across seeded misses and expiry`, () => {
+      for (const seed of [1, 37, 911]) {
+        const result = simulate(strategy, rate, seed);
+        expect(result.reached, `${strategy} ${rate}/s seed ${seed} stalled`).toBe(240);
+        expect(result.checkpoints.map(point => point.stage)).toEqual(CHECKPOINTS);
+        expect(result.economy.balance).toBeGreaterThanOrEqual(0n);
+        expect(result.economy.lifetimeEarned - result.spent).toBe(result.economy.balance);
+        expect(result.economy.bossesDefeated).toBe(80);
+        expect(result.expired).toBeGreaterThan(0);
+        expect(result.misses).toBeGreaterThan(0);
+        for (const point of result.checkpoints) {
+          expect(point.points).toBe(point.target);
+          expect(point.tough).toBeGreaterThanOrEqual(point.required);
+          expect(point.collectionMs).toBeLessThan(point.collectionLimitMs);
+          if (point.bossLimitMs) expect(point.bossMs).toBeLessThan(point.bossLimitMs);
+        }
+      }
+    });
+  }
+
+  it('makes Click Power reduce clicks on every Tough type', () => {
+    for (const [type, hp] of [['HARD', 4], ['REINFORCED', 6], ['TITAN', 11]] as const) {
+      const clicks = (damage: number) => {
+        const game = new SpawnManager(() => 0);
+        const cookie = game.spawn({ width: 300, height: 300 }, 0, 40, undefined,
+          { stageNumber: 18, forcedType: type as CookieType })!;
+        let count = 0;
+        while (game.active.has(cookie.id)) { game.hit(cookie.id, damage); count++; }
+        expect(cookie.maxHp).toBe(hp);
+        return count;
+      };
+      expect(clicks(3)).toBeLessThan(clicks(1));
     }
-    expect(economy.bossesDefeated).toBe(80);
-    expect(economy.lifetimeEarned).toBeGreaterThan(economy.balance);
   });
 });

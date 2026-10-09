@@ -46,7 +46,7 @@ describe('SpawnManager', () => {
     const economy = new Economy();
     const cookie = game.spawn({ width: 300, height: 300 }, 100)!;
     expect(game.expire(100 + RULES.lifetimeMs - 1)).toEqual([]);
-    expect(game.expire(100 + RULES.lifetimeMs)).toEqual([cookie.id]);
+    expect(game.expire(100 + RULES.lifetimeMs)).toEqual([cookie]);
     expect(game.active.size).toBe(0);
     expect(economy.balance).toBe(0n);
   });
@@ -122,7 +122,7 @@ describe('SpawnManager', () => {
     expect(game.active.get(second.id)).toBe(second);
     expect(second.expiresAt).toBe(secondExpiry);
     expect(Math.hypot(first.x - second.x, first.y - second.y)).toBeGreaterThanOrEqual(first.radius + second.radius + RULES.gap);
-    expect(game.expire(secondExpiry)).toContain(second.id);
+    expect(game.expire(secondExpiry)).toContain(second);
   });
 
   it('removes only cookies that cannot fit after resize without rewards', () => {
@@ -243,7 +243,7 @@ describe('special cookies', () => {
     expect(now).toBe(3000);
     expect(game.expire(now)).toEqual([]);
     now = advanceGameTime(now, 5000, false);
-    expect(game.expire(now)).toEqual([golden.id]);
+    expect(game.expire(now)).toEqual([golden]);
     expect(economy.balance).toBe(0n);
     expect(economy.cookiesDestroyed).toBe(0);
   });

@@ -200,7 +200,7 @@ describe('stage gameplay integration', () => {
     expect(stage.remainingMs).toBe(27_000);
     now = advanceGameTime(now, 5000, false);
     stage.tick(5000);
-    expect(spawns.expire(now)).toEqual([cookie.id]);
+    expect(spawns.expire(now)).toEqual([cookie]);
     expect(stage.remainingMs).toBe(22_000);
   });
 });

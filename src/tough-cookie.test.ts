@@ -5,6 +5,32 @@ import { StageManager } from './stage';
 import { applyCookieHit } from './gameplay';
 
 describe('Reinforced and Titan cookies', () => {
+  it('keeps Normal Stage Points fixed when Cookie Value exceeds safe number range', () => {
+    const game = new SpawnManager(() => 0);
+    const economy = new Economy();
+    const stage = new StageManager(() => ({ target: 2n, durationMs: 30_000,
+      isBossCheckpoint: false, toughRequired: 0 }));
+    const cookie = game.spawn({ width: 300, height: 300 }, 0, 40, undefined,
+      { forcedType: 'NORMAL' })!;
+    const value = 2n ** 60n;
+    expect(applyCookieHit(game, economy, stage, cookie.id, 1, value)).toMatchObject({
+      currencyReward: value, stagePoints: 1n });
+    expect(economy.balance).toBe(value);
+    expect(stage.progress).toBe(1n);
+    expect(stage.currencyEarned).toBe(value);
+    expect(applyCookieHit(game, economy, stage, cookie.id, 1, value)).toBeUndefined();
+  });
+
+  it('preserves type and partial HP on expiry without granting rewards', () => {
+    const game = new SpawnManager(() => 0);
+    const cookie = game.spawn({ width: 300, height: 300 }, 100, 40, undefined,
+      { stageNumber: 9, forcedType: 'TITAN' })!;
+    game.hit(cookie.id, 2);
+    expect(game.expire(cookie.expiresAt)).toEqual([cookie]);
+    expect(cookie).toMatchObject({ type: 'TITAN', hp: 7, stagePoints: 8n });
+    expect(game.active.size).toBe(0);
+  });
+
   it('unlocks types at stages 4 and 9 with exact basis point weights', () => {
     expect(cookieProbabilities(500, 4)).toEqual({ NORMAL: 7000, HARD: 1500, GOLDEN: 500,
       REINFORCED: 1000, TITAN: 0 });

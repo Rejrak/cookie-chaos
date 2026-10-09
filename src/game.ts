@@ -128,7 +128,7 @@ export class SpawnManager {
   }
 
   hit(id: number, damage = 1): { destroyed: boolean; hp: number } | undefined {
-    if (!Number.isInteger(damage) || damage < 1) throw new RangeError('Damage must be a positive integer');
+    if (!Number.isSafeInteger(damage) || damage < 1) throw new RangeError('Damage must be a positive integer');
     const cookie = this.active.get(id);
     if (!cookie) return;
     cookie.hp = Math.max(0, cookie.hp - damage);
@@ -137,12 +137,12 @@ export class SpawnManager {
     return { destroyed: true, hp: 0 };
   }
 
-  expire(now: number): number[] {
-    const expired: number[] = [];
+  expire(now: number): Cookie[] {
+    const expired: Cookie[] = [];
     for (const cookie of this.active.values()) {
       if (cookie.expiresAt <= now) {
         this.active.delete(cookie.id);
-        expired.push(cookie.id);
+        expired.push(cookie);
       }
     }
     return expired;
