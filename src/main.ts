@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { RULES, SpawnManager, type Cookie, type PlayArea } from './game';
+import { COOKIE_SOURCE_RADIUS, RULES, SpawnManager, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import './style.css';
@@ -72,8 +72,8 @@ class GameScene extends Phaser.Scene {
   }
 
   private drawCookie(cookie: Cookie) {
-    const sprite = this.add.image(cookie.x, cookie.y, 'cookie').setAlpha(0).setScale(cookie.radius / 96);
-    sprite.setInteractive(new Phaser.Geom.Circle(48, 48, 48), Phaser.Geom.Circle.Contains);
+    const sprite = this.add.image(cookie.x, cookie.y, 'cookie').setAlpha(0).setScale(cookie.radius / (COOKIE_SOURCE_RADIUS * 2));
+    sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     sprite.on(Phaser.Input.Events.POINTER_DOWN, () => {
       const hit = this.model.hit(cookie.id);
       if (!hit) return;
@@ -83,7 +83,7 @@ class GameScene extends Phaser.Scene {
       sprite.disableInteractive();
       this.sprites.delete(cookie.id);
       this.updateHud();
-      this.tweens.add({ targets: sprite, scale: cookie.radius / 48 * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
+      this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
       if (this.effects.length >= 10) this.effects.shift()?.destroy();
       const effect = this.add.text(cookie.x, cookie.y - 24, `+${formatAmount(reward!)}`, {
         fontFamily: 'system-ui, sans-serif', fontSize: '26px', fontStyle: 'bold', color: '#713b20',
@@ -93,7 +93,7 @@ class GameScene extends Phaser.Scene {
         onComplete: () => { effect.destroy(); this.effects = this.effects.filter(item => item !== effect); } });
     });
     this.sprites.set(cookie.id, sprite);
-    this.tweens.add({ targets: sprite, scale: cookie.radius / 48, alpha: 1, duration: 180 });
+    this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1, duration: 180 });
   }
 
   private startSpawnTimer() {
@@ -113,6 +113,7 @@ class GameScene extends Phaser.Scene {
 
   private updateHud() {
     this.balanceText.setText(`Cookies: ${formatAmount(this.economy.balance)}`);
+    this.shopTitle.setText(this.modalShop && this.scale.height < 420 ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES');
     this.statsText.setText(`Earned ${formatAmount(this.economy.lifetimeEarned)}  ·  Destroyed ${this.economy.cookiesDestroyed}  ·  Hits ${this.economy.validHits}`);
     for (const id of UPGRADE_IDS) {
       const upgrade = UPGRADES[id];
@@ -135,7 +136,7 @@ class GameScene extends Phaser.Scene {
     for (const sprite of this.sprites.values()) {
       sprite.setVisible(!this.modalShop);
       if (this.modalShop) sprite.disableInteractive();
-      else sprite.setInteractive(new Phaser.Geom.Circle(48, 48, 48), Phaser.Geom.Circle.Contains);
+      else sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     }
     if (!this.modalShop && !this.model.active.size) this.addCookie();
   }
@@ -144,21 +145,24 @@ class GameScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
     const side = this.sideShop;
+    const compact = !side && height < 420;
     const visible = side || this.shopOpen;
     this.balanceText.setPosition(width >= 760 ? (side ? width - 332 : width - 20) : 20, width >= 760 ? 20 : 51)
       .setOrigin(width >= 760 ? 1 : 0, 0);
-    this.shopBackground.setPosition(side ? width - 312 : 8, side ? 0 : RULES.hudHeight)
-      .setSize(side ? 312 : width - 16, side ? height : height - RULES.hudHeight).setVisible(visible);
-    this.shopTitle.setPosition(side ? width - 296 : 20, side ? 20 : 110).setVisible(visible);
-    this.toggleButton.setVisible(!side).setPosition(this.shopOpen ? width - 78 : width / 2, this.shopOpen ? 119 : height - 36)
-      .setSize(this.shopOpen ? 116 : 180, this.shopOpen ? 36 : 52);
+    this.shopBackground.setPosition(side ? width - 312 : compact ? 0 : 8, side || compact ? 0 : RULES.hudHeight)
+      .setSize(side ? 312 : compact ? width : width - 16, side || compact ? height : height - RULES.hudHeight).setVisible(visible);
+    this.shopTitle.setPosition(side ? width - 296 : compact ? 16 : 20, side ? 20 : compact ? 12 : 110)
+      .setText(compact && this.shopOpen ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES').setVisible(visible);
+    this.toggleButton.setVisible(!side).setPosition(this.shopOpen ? width - (compact ? 58 : 78) : width / 2, this.shopOpen ? (compact ? 24 : 119) : height - 36)
+      .setSize(this.shopOpen ? (compact ? 100 : 116) : 180, this.shopOpen ? 36 : 52);
     this.toggleText.setVisible(!side).setPosition(this.toggleButton.x, this.toggleButton.y)
       .setText(this.shopOpen ? 'Close' : 'Shop / Upgrades');
-    const rowHeight = Math.min(70, Math.floor((height - (side ? 70 : 138)) / 5) - 3);
+    const rowTop = side ? 65 : compact ? 50 : 138;
+    const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * UPGRADE_IDS.length) / UPGRADE_IDS.length));
     UPGRADE_IDS.forEach((id, index) => {
       const row = this.shopRows.get(id)!;
-      row.button.setPosition(side ? width - 300 : 16, (side ? 65 : 138) + index * (rowHeight + 4))
-        .setSize(side ? 288 : width - 32, rowHeight).setVisible(visible);
+      row.button.setPosition(side ? width - 300 : compact ? 8 : 16, rowTop + index * (rowHeight + 4))
+        .setSize(side ? 288 : compact ? width - 16 : width - 32, rowHeight).setVisible(visible);
       row.label.setPosition(row.button.x + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(visible);
     });
   }
@@ -175,7 +179,7 @@ class GameScene extends Phaser.Scene {
     for (const sprite of this.sprites.values()) {
       sprite.setVisible(!this.modalShop);
       if (this.modalShop) sprite.disableInteractive();
-      else sprite.setInteractive(new Phaser.Geom.Circle(48, 48, 48), Phaser.Geom.Circle.Contains);
+      else sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     }
     if (!this.modalShop && !this.model.active.size) this.addCookie();
   }

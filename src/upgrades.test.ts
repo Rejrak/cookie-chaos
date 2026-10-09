@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Economy } from './economy';
-import { UpgradeManager } from './upgrades';
+import { UpgradeManager, valueCost } from './upgrades';
 
 describe('UpgradeManager', () => {
   it('grows integer costs, increases reward, and deducts only successful purchases', () => {
@@ -9,16 +9,16 @@ describe('UpgradeManager', () => {
     expect(upgrades.cost('value')).toBe(14n);
     expect(upgrades.buy('value', economy)).toBe(false);
     expect(upgrades.level('value')).toBe(0n);
-    economy.recordHit(35n);
+    economy.recordHit(43n);
     expect(upgrades.buy('value', economy)).toBe(true);
     expect(upgrades.level('value')).toBe(1n);
-    expect(upgrades.cost('value')).toBe(21n);
+    expect(upgrades.cost('value')).toBe(29n);
     expect(upgrades.reward).toBe(2n);
-    expect(economy.balance).toBe(21n);
+    expect(economy.balance).toBe(29n);
     expect(upgrades.buy('value', economy)).toBe(true);
-    expect(upgrades.cost('value')).toBe(32n);
+    expect(upgrades.cost('value')).toBe(46n);
     expect(economy.balance).toBe(0n);
-    expect(economy.lifetimeEarned).toBe(35n);
+    expect(economy.lifetimeEarned).toBe(43n);
   });
 
   it('caps cookie radius and refuses purchases without benefit', () => {
@@ -62,7 +62,9 @@ describe('UpgradeManager', () => {
     economy.recordHit(10n ** 100n);
     for (let i = 0; i < 100; i++) expect(upgrades.buy('value', economy)).toBe(true);
     expect(upgrades.reward).toBe(101n);
-    expect(upgrades.cost('value')).toBe((14n * 3n ** 100n + 2n ** 100n - 1n) / 2n ** 100n);
+    expect(upgrades.cost('value')).toBe(11_414n);
+    expect(valueCost(10n ** 10n)).toBe(100_000_000_140_000_000_014n);
+    expect(() => valueCost(-1n)).toThrow(RangeError);
   });
 
   it('makes the first purchase available near 20 seconds with perfect base-rate clicks', () => {
@@ -74,5 +76,27 @@ describe('UpgradeManager', () => {
       if (upgrades.cost('value')! <= economy.balance) { firstAffordableAt = time; break; }
     }
     expect(firstAffordableAt).toBe(19_500);
+  });
+
+  it('simulates each zero-balance purchase at two cookies per second', () => {
+    const samples = [
+      [0n, 14n, 700n], [5n, 109n, 909n], [10n, 254n, 1155n],
+      [20n, 694n, 1653n], [30n, 1334n, 2152n],
+      [50n, 3214n, 3151n], [100n, 11414n, 5651n],
+    ] as const;
+    let previousCost = 0n;
+    let previousTime = 0n;
+    for (const [level, expectedCost, expectedHundredths] of samples) {
+      const cost = valueCost(level);
+      const reward = level + 1n;
+      const timeHundredths = (cost * 100n + 2n * reward - 1n) / (2n * reward);
+      expect(cost).toBe(expectedCost);
+      expect(timeHundredths).toBe(expectedHundredths);
+      expect(cost).toBeGreaterThan(previousCost);
+      expect(timeHundredths).toBeGreaterThan(previousTime);
+      previousCost = cost;
+      previousTime = timeHundredths;
+    }
+    expect(previousTime).toBeLessThan(6000n);
   });
 });

@@ -9,6 +9,9 @@ export const RULES = {
   edge: 12,
 } as const;
 
+// SVG outer radius 46.5 plus half its 3px stroke; sprite hit circle uses this radius.
+export const COOKIE_SOURCE_RADIUS = 48;
+
 export type Cookie = { id: number; x: number; y: number; radius: number; hp: number; expiresAt: number };
 export type Bounds = { width: number; height: number };
 export type PlayArea = { left: number; top: number; right: number; bottom: number };

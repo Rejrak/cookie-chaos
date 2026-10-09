@@ -1,7 +1,7 @@
 import { Economy } from './economy';
 
 export const UPGRADES = {
-  value: { name: 'Cookie Value', description: 'More cookies per hit', baseCost: 14n, maxLevel: null, available: true },
+  value: { name: 'Cookie Value', description: 'More cookies per hit', baseCost: 14n, quadraticCost: 1n, maxLevel: null, available: true },
   size: { name: 'Cookie Size', description: 'Larger cookies', baseCost: 16n, maxLevel: 4n, available: true },
   speed: { name: 'Spawn Speed', description: 'Faster spawns', baseCost: 20n, maxLevel: 10n, available: true },
   power: { name: 'Click Power', description: 'More damage per click · M3', baseCost: 0n, maxLevel: null, available: false },
@@ -10,6 +10,11 @@ export const UPGRADES = {
 
 export type UpgradeId = keyof typeof UPGRADES;
 export const UPGRADE_IDS = Object.keys(UPGRADES) as UpgradeId[];
+
+export function valueCost(level: bigint): bigint {
+  if (level < 0n) throw new RangeError('Level must be nonnegative');
+  return UPGRADES.value.baseCost * (level + 1n) + UPGRADES.value.quadraticCost * level * level;
+}
 
 export class UpgradeManager {
   private levels = new Map<UpgradeId, bigint>();
@@ -20,6 +25,7 @@ export class UpgradeManager {
     const upgrade = UPGRADES[id];
     const level = this.level(id);
     if (!upgrade.available || (upgrade.maxLevel !== null && level >= upgrade.maxLevel)) return null;
+    if (id === 'value') return valueCost(level);
     const denominator = 2n ** level;
     return (upgrade.baseCost * 3n ** level + denominator - 1n) / denominator;
   }
