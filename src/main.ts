@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
-import { applyBossHit, applyCookieHit } from './gameplay';
+import { applyBossHit, applyCookieHit, applyDamage } from './gameplay';
+import { HealthManager } from './health';
 import { BOSSES, BossManager } from './boss';
 import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
@@ -13,6 +14,7 @@ class GameScene extends Phaser.Scene {
   private economy = new Economy();
   private upgrades = new UpgradeManager();
   private stage = new StageManager();
+  private health = new HealthManager();
   private boss: BossManager | null = null;
   private bossSprite?: Phaser.GameObjects.Image;
   private bossGuard?: Phaser.GameObjects.Shape;
@@ -293,9 +295,19 @@ class GameScene extends Phaser.Scene {
     this.layout();
   }
 
+  private takeDamage(amount: number, x: number, y: number) {
+    const result = applyDamage(this.health, this.stage, amount, this.gameplayNow, this.modalShop);
+    if (!result || result === 'invulnerable') return;
+    this.floatText({ x, y }, result === 'shield' ? 'SHIELD BLOCK' : `-${amount} HP`,
+      result === 'shield' ? '#426da0' : '#bd3527');
+    this.updateHud();
+    if (this.stage.status === 'FAILED') this.finishStage();
+  }
+
   private advanceStage() {
     const advanced = this.stage.status === 'COMPLETED' ? this.stage.continue() : this.stage.retry();
     if (!advanced) return;
+    this.health.resetForStage(this.upgrades.maxHp, this.upgrades.stageShields);
     this.model.resetFairness();
     this.lastBossBonus = 0n;
     this.lastBossName = '';
@@ -309,6 +321,8 @@ class GameScene extends Phaser.Scene {
   private buy(id: UpgradeId) {
     if (this.stage.status === 'BOSS_FIGHT') return;
     if (!this.upgrades.buy(id, this.economy)) return;
+    if (id === 'health') this.health.increaseMaxHealth();
+    if (id === 'shield') this.health.addShield(this.upgrades.stageShields);
     if (id === 'speed') this.startSpawnTimer();
     this.updateHud();
     const row = this.shopRows.get(id)!;
@@ -438,7 +452,8 @@ class GameScene extends Phaser.Scene {
     const visible = (this.stage.status === 'COMPLETED' || this.stage.status === 'FAILED') && !this.modalShop;
     const cycleComplete = this.stage.status === 'COMPLETED' && this.stage.cycle.stageInCycle === 12;
     const result = cycleComplete ? `${kingdomName(this.stage.cycle.cycleNumber).toUpperCase()} COMPLETE` :
-      this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP';
+      this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' :
+        this.stage.failureReason === 'HEALTH_DEPLETED' ? 'OUT OF HEALTH' : 'TIME UP';
     const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}\nEarned ${formatAmount(this.stage.currencyEarned)} Cookies`;
     this.terminalBackground.setSize(width, height).setVisible(visible);
     this.terminalText.setPosition(width / 2, height / 2 - 35)

@@ -5,6 +5,7 @@ const TARGETS = [12n, 18n, 23n, 29n, 35n, 42n, 48n, 55n, 63n, 72n, 82n, 90n] as 
 const DURATIONS_MS = [30_000, 40_000, 50_000, 55_000, 60_000, 65_000, 70_000, 75_000, 80_000, 85_000, 90_000, 90_000] as const;
 
 export type StageStatus = 'RUNNING' | 'BOSS_FIGHT' | 'COMPLETED' | 'FAILED';
+export type FailureReason = 'TIMEOUT' | 'HEALTH_DEPLETED';
 
 export function stageConfig(stageNumber: number) {
   if (!Number.isSafeInteger(stageNumber) || stageNumber < 1) throw new RangeError('Invalid stage number');
@@ -29,6 +30,7 @@ export class StageManager {
   durationMs = 0;
   remainingMs = 0;
   status: StageStatus = 'RUNNING';
+  failureReason: FailureReason | null = null;
   maxCompletedStage = 0;
 
   constructor(private readonly config: typeof stageConfig = stageConfig) { this.start(1); }
@@ -54,14 +56,23 @@ export class StageManager {
     this.currencyEarned = 0n;
     this.toughDestroyed = 0;
     this.status = 'RUNNING';
+    this.failureReason = null;
   }
 
   tick(deltaMs: number, paused = false): StageStatus {
     if (!Number.isFinite(deltaMs) || deltaMs < 0) throw new RangeError('Invalid stage delta');
     if ((this.status !== 'RUNNING' && this.status !== 'BOSS_FIGHT') || paused) return this.status;
     this.remainingMs = Math.max(0, this.remainingMs - deltaMs);
-    if (this.remainingMs === 0) this.status = 'FAILED';
+    if (this.remainingMs === 0) this.fail('TIMEOUT');
     return this.status;
+  }
+
+  fail(reason: FailureReason): boolean {
+    if (reason !== 'TIMEOUT' && reason !== 'HEALTH_DEPLETED') throw new RangeError('Invalid failure reason');
+    if (this.status !== 'RUNNING' && this.status !== 'BOSS_FIGHT') return false;
+    this.status = 'FAILED';
+    this.failureReason = reason;
+    return true;
   }
 
   recordCollection(stagePoints: bigint, currencyReward: bigint, tough = false): boolean {

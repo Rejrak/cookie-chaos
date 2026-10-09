@@ -2,6 +2,15 @@ import { Economy } from './economy';
 import { SpawnManager, cookieReward } from './game';
 import { StageManager } from './stage';
 import { BossManager } from './boss';
+import { HealthManager } from './health';
+
+export function applyDamage(health: HealthManager, stage: StageManager, amount: number, now: number,
+  paused = false) {
+  if (paused || (stage.status !== 'RUNNING' && stage.status !== 'BOSS_FIGHT')) return;
+  const result = health.takeDamage(amount, now);
+  if (health.isDead) stage.fail('HEALTH_DEPLETED');
+  return result;
+}
 
 export function applyCookieHit(spawns: SpawnManager, economy: Economy, stage: StageManager,
   id: number, damage: number, baseReward: bigint) {
