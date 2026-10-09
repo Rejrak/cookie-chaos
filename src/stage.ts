@@ -1,7 +1,9 @@
+import { bossForStage } from './boss';
+
 const TARGETS = [12n, 20n, 30n, 40n, 55n, 70n, 85n, 105n, 130n, 160n, 190n, 220n] as const;
 const DURATIONS_MS = [30_000, 40_000, 50_000, 55_000, 60_000, 65_000, 70_000, 75_000, 80_000, 85_000, 90_000, 90_000] as const;
 
-export type StageStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
+export type StageStatus = 'RUNNING' | 'BOSS_FIGHT' | 'COMPLETED' | 'FAILED';
 
 export function stageConfig(stageNumber: number) {
   if (!Number.isSafeInteger(stageNumber) || stageNumber < 1) throw new RangeError('Invalid stage number');
@@ -44,7 +46,7 @@ export class StageManager {
 
   tick(deltaMs: number, paused = false): StageStatus {
     if (!Number.isFinite(deltaMs) || deltaMs < 0) throw new RangeError('Invalid stage delta');
-    if (this.status !== 'RUNNING' || paused) return this.status;
+    if ((this.status !== 'RUNNING' && this.status !== 'BOSS_FIGHT') || paused) return this.status;
     this.remainingMs = Math.max(0, this.remainingMs - deltaMs);
     if (this.remainingMs === 0) this.status = 'FAILED';
     return this.status;
@@ -56,9 +58,23 @@ export class StageManager {
     this.earned += amount;
     this.progress = this.earned < this.target ? this.earned : this.target;
     if (this.progress === this.target) {
-      this.status = 'COMPLETED';
-      this.maxCompletedStage = Math.max(this.maxCompletedStage, this.stageNumber);
+      const boss = bossForStage(this.stageNumber);
+      if (boss) {
+        this.status = 'BOSS_FIGHT';
+        this.durationMs = boss.durationMs;
+        this.remainingMs = boss.durationMs;
+      } else {
+        this.status = 'COMPLETED';
+        this.maxCompletedStage = Math.max(this.maxCompletedStage, this.stageNumber);
+      }
     }
+    return true;
+  }
+
+  completeBoss(): boolean {
+    if (this.status !== 'BOSS_FIGHT') return false;
+    this.status = 'COMPLETED';
+    this.maxCompletedStage = Math.max(this.maxCompletedStage, this.stageNumber);
     return true;
   }
 

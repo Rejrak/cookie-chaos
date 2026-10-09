@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
-import { applyCookieHit } from './gameplay';
+import { applyBossHit, applyCookieHit } from './gameplay';
+import { BOSSES, BossManager } from './boss';
 import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import './style.css';
@@ -11,6 +12,16 @@ class GameScene extends Phaser.Scene {
   private economy = new Economy();
   private upgrades = new UpgradeManager();
   private stage = new StageManager();
+  private boss: BossManager | null = null;
+  private bossSprite?: Phaser.GameObjects.Image;
+  private bossGuard?: Phaser.GameObjects.Shape;
+  private bossPanel!: Phaser.GameObjects.Rectangle;
+  private bossStatusText!: Phaser.GameObjects.Text;
+  private bossProtectionText!: Phaser.GameObjects.Text;
+  private bossProtectionBack!: Phaser.GameObjects.Rectangle;
+  private bossProtectionFill!: Phaser.GameObjects.Rectangle;
+  private lastBossBonus = 0n;
+  private lastBossName = '';
   private sprites = new Map<number, Phaser.GameObjects.Image>();
   private cracks = new Map<number, Phaser.GameObjects.Image>();
   private effects: Phaser.GameObjects.Text[] = [];
@@ -42,6 +53,8 @@ class GameScene extends Phaser.Scene {
   preload() {
     for (const type of Object.values(COOKIE_TYPES)) this.load.svg(type.texture, type.asset, { width: 96, height: 96 });
     this.load.svg('hard-cracks', '/hard-cracks.svg', { width: 96, height: 96 });
+    for (const boss of Object.values(BOSSES)) this.load.svg(boss.texture, `/${boss.texture}.svg`, { width: 128, height: 128 });
+    this.load.svg('boss-cookieng-golden', '/boss-cookieng-golden.svg', { width: 128, height: 128 });
   }
 
   create() {
@@ -55,6 +68,11 @@ class GameScene extends Phaser.Scene {
     this.progressBack = this.add.rectangle(20, 107, 1, 10, 0xd6b88a).setOrigin(0).setDepth(2);
     this.progressFill = this.add.rectangle(20, 107, 1, 10, 0xc97831).setOrigin(0).setDepth(3);
     this.statsText = this.add.text(350, 16, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#713b20' }).setDepth(2);
+    this.bossPanel = this.add.rectangle(0, 0, 1, 72, 0xffe5b6).setOrigin(0).setDepth(1);
+    this.bossStatusText = this.add.text(20, 0, '', { ...heading, fontSize: '16px' }).setDepth(2);
+    this.bossProtectionText = this.add.text(20, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: '#713b20' }).setDepth(2);
+    this.bossProtectionBack = this.add.rectangle(20, 0, 1, 8, 0xd6b88a).setOrigin(0).setDepth(2);
+    this.bossProtectionFill = this.add.rectangle(20, 0, 1, 8, 0x6685a1).setOrigin(0).setDepth(3);
     this.shopBackground = this.add.rectangle(0, 0, 1, 1, 0xffe5b6).setOrigin(0).setDepth(4).setInteractive();
     this.shopTitle = this.add.text(0, 0, 'UPGRADES', { ...heading, fontSize: '20px' }).setDepth(5);
     for (const id of UPGRADE_IDS) {
@@ -76,15 +94,25 @@ class GameScene extends Phaser.Scene {
     this.addCookie(true);
     this.startSpawnTimer();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this);
+      this.spawnTimer.remove(false);
+      this.clearCookies();
+      this.clearEffects();
+      this.clearBoss();
+    });
   }
 
   update(_time: number, delta: number) {
-    if (this.stage.status !== 'RUNNING') return;
+    if (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT') return;
     this.gameplayNow = advanceGameTime(this.gameplayNow, delta, this.modalShop);
     const status = this.stage.tick(delta, this.modalShop);
-    if (status !== 'RUNNING') { this.finishStage(); return; }
+    if (status === 'FAILED') { this.finishStage(); return; }
     this.updateTimer();
+    if (status === 'BOSS_FIGHT') {
+      if (this.boss?.tick(this.gameplayNow)) this.updateHud();
+      return;
+    }
     if (this.modalShop) return;
     for (const id of this.model.expire(this.gameplayNow)) this.removeCookie(id);
   }
@@ -132,14 +160,18 @@ class GameScene extends Phaser.Scene {
         const halo = this.add.circle(cookie.x, cookie.y, cookie.radius + 5).setStrokeStyle(3, 0xffd45f).setDepth(1);
         this.tweens.add({ targets: halo, scale: 1.35, alpha: 0, duration: 260, onComplete: () => halo.destroy() });
       }
-      if (this.stage.status === 'COMPLETED') this.finishStage();
+      if (this.stage.status === 'BOSS_FIGHT') this.enterBossFight();
+      else if (this.stage.status === 'COMPLETED') this.finishStage();
     });
     this.sprites.set(cookie.id, sprite);
     this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1, duration: 180 });
   }
 
-  private floatText(cookie: Cookie, value: string, color: string) {
-    if (this.effects.length >= 10) this.effects.shift()?.destroy();
+  private floatText(cookie: { x: number; y: number }, value: string, color: string) {
+    if (this.effects.length >= 10) {
+      const oldest = this.effects.shift();
+      if (oldest) { this.tweens.killTweensOf(oldest); oldest.destroy(); }
+    }
     const effect = this.add.text(cookie.x, cookie.y - 24, value, {
       fontFamily: 'system-ui, sans-serif', fontSize: '26px', fontStyle: 'bold', color,
     }).setOrigin(0.5).setDepth(3);
@@ -154,10 +186,88 @@ class GameScene extends Phaser.Scene {
   }
 
   private removeCookie(id: number) {
-    this.sprites.get(id)?.destroy();
+    const sprite = this.sprites.get(id);
+    if (sprite) { this.tweens.killTweensOf(sprite); sprite.destroy(); }
     this.sprites.delete(id);
     this.cracks.get(id)?.destroy();
     this.cracks.delete(id);
+  }
+
+  private clearCookies() {
+    for (const id of this.sprites.keys()) this.removeCookie(id);
+    this.model.active.clear();
+  }
+
+  private clearEffects() {
+    for (const effect of this.effects) { this.tweens.killTweensOf(effect); effect.destroy(); }
+    this.effects = [];
+  }
+
+  private clearBoss() {
+    if (this.bossSprite) { this.tweens.killTweensOf(this.bossSprite); this.bossSprite.destroy(); }
+    this.bossSprite = undefined;
+    this.bossGuard?.destroy();
+    this.bossGuard = undefined;
+    this.boss = null;
+  }
+
+  private enterBossFight() {
+    this.spawnTimer.paused = true;
+    this.clearCookies();
+    this.clearEffects();
+    this.boss = new BossManager(this.stage.stageNumber);
+    this.bossSprite = this.add.image(0, 0, this.boss.config.texture).setDepth(2)
+      .setInteractive(new Phaser.Geom.Circle(64, 64, 60), Phaser.Geom.Circle.Contains);
+    this.bossSprite.on(Phaser.Input.Events.POINTER_DOWN, () => this.hitBoss());
+    if (this.boss.config.id === 'barbarian') {
+      this.bossGuard = this.add.circle(0, 0, 57).setStrokeStyle(5, 0x8a6e58).setDepth(1);
+    } else if (this.boss.config.id === 'knight') {
+      this.bossGuard = this.add.ellipse(0, 0, 84, 72, 0x8299ae, 0.94).setStrokeStyle(4, 0x4f6170).setDepth(3);
+    }
+    this.shownSeconds = -1;
+    this.updateHud();
+    this.layout();
+  }
+
+  private hitBoss() {
+    if (!this.boss || !this.bossSprite) return;
+    const hit = applyBossHit(this.boss, this.economy, this.stage, this.upgrades.damage, this.gameplayNow, this.upgrades.reward);
+    if (!hit) return;
+    const position = { x: this.bossSprite.x, y: this.bossSprite.y };
+    this.floatText(position, `-${hit.damageDealt}`, '#b83225');
+    this.tweens.killTweensOf(this.bossSprite);
+    this.bossSprite.setAlpha(1);
+    this.tweens.add({ targets: this.bossSprite, alpha: 0.65, yoyo: true, duration: 65 });
+    if (hit.phaseChanged) {
+      this.bossGuard?.destroy();
+      this.bossGuard = undefined;
+      if (hit.phase === 'GOLDEN') this.bossSprite.setTexture('boss-cookieng-golden');
+      if (hit.phase === 'RAGE') this.bossSprite.setTint(0xff8585);
+      if (this.scale.height >= 480) this.floatText({ x: position.x, y: position.y - 36 },
+        hit.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2×' : hit.phase === 'GOLDEN' ? 'GOLDEN FORM' :
+          hit.phase === 'RAGE' ? 'RAGE!' : hit.phase === 'BODY' && this.boss.config.id === 'barbarian' ?
+            'DOUBLE DAMAGE ENDED' : hit.phase === 'BODY' ? 'SHIELD BROKEN' : 'BODY EXPOSED', '#a94b28');
+    }
+    this.updateHud();
+    if (hit.defeated) {
+      this.lastBossName = this.boss.config.name;
+      this.lastBossBonus = hit.reward!;
+      this.cameras.main.flash(220, 255, 213, 108);
+      this.finishStage();
+    }
+  }
+
+  private layoutBoss() {
+    if (!this.boss || !this.bossSprite) return;
+    const playWidth = this.scale.width;
+    const bottom = this.scale.height - 72;
+    const radius = Math.min(96, (playWidth - 32) / 2, (bottom - RULES.hudHeight - 16) / 2);
+    const x = playWidth / 2;
+    const y = (RULES.hudHeight + bottom) / 2;
+    this.bossSprite.setPosition(x, y).setScale(radius / 60);
+    if (this.bossGuard) {
+      this.bossGuard.setPosition(x, this.boss.config.id === 'knight' ? y + radius * 0.25 : y).setScale(radius / 60);
+    }
   }
 
   private startSpawnTimer() {
@@ -168,23 +278,27 @@ class GameScene extends Phaser.Scene {
 
   private finishStage() {
     this.spawnTimer.paused = true;
-    for (const id of this.sprites.keys()) this.removeCookie(id);
-    this.model.active.clear();
+    this.clearCookies();
+    this.clearEffects();
+    this.clearBoss();
     this.updateHud();
-    this.layoutTerminal();
+    this.layout();
   }
 
   private advanceStage() {
     const advanced = this.stage.status === 'COMPLETED' ? this.stage.continue() : this.stage.retry();
     if (!advanced) return;
+    this.lastBossBonus = 0n;
+    this.lastBossName = '';
     this.shownSeconds = -1;
     this.updateHud();
-    this.layoutTerminal();
+    this.layout();
     this.addCookie(true);
     this.startSpawnTimer();
   }
 
   private buy(id: UpgradeId) {
+    if (this.stage.status === 'BOSS_FIGHT') return;
     if (!this.upgrades.buy(id, this.economy)) return;
     if (id === 'speed') this.startSpawnTimer();
     this.updateHud();
@@ -196,8 +310,20 @@ class GameScene extends Phaser.Scene {
   private updateHud() {
     this.balanceText.setText(`Cookies: ${formatAmount(this.economy.balance)}`);
     this.stageText.setText(`Stage ${this.stage.stageNumber}`);
-    this.progressText.setText(`${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} stage cookies`);
-    this.progressFill.setSize(this.progressWidth * this.stage.progressPercent / 100, 10);
+    const bossFight = this.stage.status === 'BOSS_FIGHT' && this.boss !== null;
+    this.progressText.setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
+      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} stage cookies`);
+    this.progressFill.setSize(this.progressWidth * (bossFight ? this.boss!.hp / this.boss!.config.bodyHp : this.stage.progressPercent / 100), 10)
+      .setFillStyle(bossFight ? 0xb84d35 : 0xc97831);
+    this.bossStatusText.setText(bossFight ? this.boss!.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2× DAMAGE' :
+      this.boss!.phase === 'RAGE' ? `RAGE · COMBO ${this.boss!.comboCount}/3` :
+        this.boss!.phase === 'GOLDEN' ? 'GOLDEN FORM · BODY EXPOSED' :
+          this.boss!.protectionHp > 0 ? `${this.boss!.config.protection?.toUpperCase()} ACTIVE` : 'BODY EXPOSED' : '');
+    this.bossProtectionText.setText(bossFight && this.boss!.protectionHp > 0 ?
+      `${this.boss!.config.protection} ${this.boss!.protectionHp}/${this.boss!.config.protectionHp}` : '');
+    this.bossProtectionBack.setVisible(bossFight && this.boss!.protectionHp > 0);
+    this.bossProtectionFill.setVisible(bossFight && this.boss!.protectionHp > 0)
+      .setSize(bossFight ? (this.scale.width - 40) * this.boss!.protectionHp / (this.boss!.config.protectionHp || 1) : 0, 8);
     this.updateTimer();
     this.shopTitle.setText(this.modalShop && this.scale.height < 420 ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES');
     this.statsText.setText(`Earned ${formatAmount(this.economy.lifetimeEarned)}  ·  Destroyed ${this.economy.cookiesDestroyed}  ·  Hits ${this.economy.validHits}`);
@@ -225,6 +351,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private toggleShop() {
+    if (this.stage.status === 'BOSS_FIGHT') return;
     this.shopOpen = !this.shopOpen;
     this.layout();
     this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
@@ -246,21 +373,30 @@ class GameScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
     const side = this.sideShop;
-    const playRight = side ? width - 312 : width;
+    const bossFight = this.stage.status === 'BOSS_FIGHT';
+    const playRight = bossFight ? width : side ? width - 312 : width;
     const compact = !side && height < 420;
-    const visible = side || this.shopOpen;
+    const visible = (side || this.shopOpen) && !bossFight;
     this.timerText.setPosition(playRight - 16, 65);
-    this.statsText.setVisible(width >= 1100);
+    this.statsText.setVisible(width >= 1100 && !bossFight);
     this.progressWidth = Math.min(420, playRight - 40);
     this.progressBack.setSize(this.progressWidth, 10);
-    this.progressFill.setSize(this.progressWidth * this.stage.progressPercent / 100, 10);
+    this.progressFill.setSize(this.progressWidth * (bossFight && this.boss ? this.boss.hp / this.boss.config.bodyHp : this.stage.progressPercent / 100), 10);
+    this.bossPanel.setPosition(0, height - 72).setSize(playRight, 72).setVisible(bossFight);
+    this.bossStatusText.setPosition(20, height - 65).setFontSize(width < 400 ? 14 : 16).setVisible(bossFight);
+    this.bossProtectionText.setPosition(20, height - 43).setVisible(bossFight && !!this.boss?.protectionHp);
+    this.bossProtectionBack.setPosition(20, height - 19).setSize(playRight - 40, 8)
+      .setVisible(bossFight && !!this.boss?.protectionHp);
+    this.bossProtectionFill.setPosition(20, height - 19)
+      .setSize(this.boss ? (playRight - 40) * this.boss.protectionHp / (this.boss.config.protectionHp || 1) : 0, 8)
+      .setVisible(bossFight && !!this.boss?.protectionHp);
     this.shopBackground.setPosition(side ? width - 312 : compact ? 0 : 8, side || compact ? 0 : RULES.hudHeight)
       .setSize(side ? 312 : compact ? width : width - 16, side || compact ? height : height - RULES.hudHeight).setVisible(visible);
     this.shopTitle.setPosition(side ? width - 296 : compact ? 16 : 20, side ? 20 : compact ? 12 : RULES.hudHeight + 10)
       .setText(compact && this.shopOpen ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES').setVisible(visible);
-    this.toggleButton.setVisible(!side).setPosition(this.shopOpen ? width - (compact ? 58 : 78) : width / 2, this.shopOpen ? (compact ? 24 : RULES.hudHeight + 20) : height - 36)
+    this.toggleButton.setVisible(!side && !bossFight).setPosition(this.shopOpen ? width - (compact ? 58 : 78) : width / 2, this.shopOpen ? (compact ? 24 : RULES.hudHeight + 20) : height - 36)
       .setSize(this.shopOpen ? (compact ? 100 : 116) : 180, this.shopOpen ? 36 : 52);
-    this.toggleText.setVisible(!side).setPosition(this.toggleButton.x, this.toggleButton.y)
+    this.toggleText.setVisible(!side && !bossFight).setPosition(this.toggleButton.x, this.toggleButton.y)
       .setText(this.shopOpen ? 'Close' : 'Shop / Upgrades');
     const rowTop = side ? 65 : compact ? 50 : RULES.hudHeight + 38;
     const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * UPGRADE_IDS.length) / UPGRADE_IDS.length));
@@ -269,7 +405,14 @@ class GameScene extends Phaser.Scene {
       row.button.setPosition(side ? width - 300 : compact ? 8 : 16, rowTop + index * (rowHeight + 4))
         .setSize(side ? 288 : compact ? width - 16 : width - 32, rowHeight).setVisible(visible);
       row.label.setPosition(row.button.x + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(visible);
+      if (visible) row.button.setInteractive({ useHandCursor: true });
+      else row.button.disableInteractive();
     });
+    if (visible) this.shopBackground.setInteractive();
+    else this.shopBackground.disableInteractive();
+    if (!side && !bossFight) this.toggleButton.setInteractive({ useHandCursor: true });
+    else this.toggleButton.disableInteractive();
+    this.layoutBoss();
     this.layoutTerminal();
   }
 
@@ -277,10 +420,10 @@ class GameScene extends Phaser.Scene {
     const side = this.sideShop;
     const width = side ? this.scale.width - 312 : this.scale.width;
     const height = side ? this.scale.height : this.scale.height - 72;
-    const visible = this.stage.status !== 'RUNNING' && !this.modalShop;
+    const visible = (this.stage.status === 'COMPLETED' || this.stage.status === 'FAILED') && !this.modalShop;
     this.terminalBackground.setSize(width, height).setVisible(visible);
     this.terminalText.setPosition(width / 2, height / 2 - 35).setFontSize(width < 300 ? 16 : 19)
-      .setText(`${this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP'}\nStage ${this.stage.stageNumber}\n${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}\nEarned this stage: ${formatAmount(this.stage.earned)}`)
+      .setText(`${this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP'}\nStage ${this.stage.stageNumber}\n${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}\nEarned this stage: ${formatAmount(this.stage.earned)}${this.lastBossBonus ? `\n${this.lastBossName} bonus: ${formatAmount(this.lastBossBonus)}` : ''}`)
       .setVisible(visible);
     this.terminalButton.setPosition(width / 2, height / 2 + 66).setSize(Math.min(190, width - 36), 48).setVisible(visible);
     this.terminalButtonText.setPosition(width / 2, height / 2 + 66)
