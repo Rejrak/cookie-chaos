@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
-import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, cookieReward, type Cookie, type PlayArea } from './game';
+import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
+import { applyCookieHit } from './gameplay';
+import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import './style.css';
 
@@ -8,20 +10,32 @@ class GameScene extends Phaser.Scene {
   private model = new SpawnManager();
   private economy = new Economy();
   private upgrades = new UpgradeManager();
+  private stage = new StageManager();
   private sprites = new Map<number, Phaser.GameObjects.Image>();
   private cracks = new Map<number, Phaser.GameObjects.Image>();
   private effects: Phaser.GameObjects.Text[] = [];
   private gameplayNow = 0;
+  private shownSeconds = -1;
+  private progressWidth = 0;
   private shopRows = new Map<UpgradeId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
   private shopOpen = false;
   private spawnTimer!: Phaser.Time.TimerEvent;
   private titleText!: Phaser.GameObjects.Text;
   private balanceText!: Phaser.GameObjects.Text;
   private statsText!: Phaser.GameObjects.Text;
+  private stageText!: Phaser.GameObjects.Text;
+  private timerText!: Phaser.GameObjects.Text;
+  private progressText!: Phaser.GameObjects.Text;
+  private progressBack!: Phaser.GameObjects.Rectangle;
+  private progressFill!: Phaser.GameObjects.Rectangle;
   private shopBackground!: Phaser.GameObjects.Rectangle;
   private shopTitle!: Phaser.GameObjects.Text;
   private toggleButton!: Phaser.GameObjects.Rectangle;
   private toggleText!: Phaser.GameObjects.Text;
+  private terminalBackground!: Phaser.GameObjects.Rectangle;
+  private terminalText!: Phaser.GameObjects.Text;
+  private terminalButton!: Phaser.GameObjects.Rectangle;
+  private terminalButtonText!: Phaser.GameObjects.Text;
 
   constructor() { super('game'); }
 
@@ -33,9 +47,14 @@ class GameScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#fff2d4');
     const heading = { fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#713b20' };
-    this.titleText = this.add.text(20, 15, 'Cookie Chaos', { ...heading, fontSize: '26px' }).setDepth(2);
-    this.balanceText = this.add.text(20, 55, '', { ...heading, fontSize: '21px' }).setDepth(2);
-    this.statsText = this.add.text(20, 79, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#713b20' }).setDepth(2);
+    this.titleText = this.add.text(20, 6, 'Cookie Chaos', { ...heading, fontSize: '26px' }).setDepth(2);
+    this.balanceText = this.add.text(20, 37, '', { ...heading, fontSize: '20px' }).setDepth(2);
+    this.stageText = this.add.text(20, 65, '', { ...heading, fontSize: '17px' }).setDepth(2);
+    this.timerText = this.add.text(0, 65, '', { ...heading, fontSize: '17px' }).setOrigin(1, 0).setDepth(2);
+    this.progressText = this.add.text(20, 86, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#713b20' }).setDepth(2);
+    this.progressBack = this.add.rectangle(20, 107, 1, 10, 0xd6b88a).setOrigin(0).setDepth(2);
+    this.progressFill = this.add.rectangle(20, 107, 1, 10, 0xc97831).setOrigin(0).setDepth(3);
+    this.statsText = this.add.text(350, 16, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#713b20' }).setDepth(2);
     this.shopBackground = this.add.rectangle(0, 0, 1, 1, 0xffe5b6).setOrigin(0).setDepth(4).setInteractive();
     this.shopTitle = this.add.text(0, 0, 'UPGRADES', { ...heading, fontSize: '20px' }).setDepth(5);
     for (const id of UPGRADE_IDS) {
@@ -44,9 +63,14 @@ class GameScene extends Phaser.Scene {
       button.on(Phaser.Input.Events.POINTER_DOWN, () => this.buy(id));
       this.shopRows.set(id, { button, label });
     }
-    this.toggleButton = this.add.rectangle(0, 0, 180, 52, 0xb76b36).setDepth(6).setInteractive({ useHandCursor: true });
-    this.toggleText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '17px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(7);
+    this.toggleButton = this.add.rectangle(0, 0, 180, 52, 0xb76b36).setDepth(11).setInteractive({ useHandCursor: true });
+    this.toggleText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '17px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(12);
     this.toggleButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleShop());
+    this.terminalBackground = this.add.rectangle(0, 0, 1, 1, 0x3d271c, 0.94).setOrigin(0).setDepth(8).setInteractive();
+    this.terminalText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '19px', fontStyle: 'bold', color: '#ffffff', align: 'center', lineSpacing: 8 }).setOrigin(0.5).setDepth(9);
+    this.terminalButton = this.add.rectangle(0, 0, 180, 48, 0xe9ad63).setDepth(9).setInteractive({ useHandCursor: true });
+    this.terminalButtonText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '18px', fontStyle: 'bold', color: '#4b291c' }).setOrigin(0.5).setDepth(10);
+    this.terminalButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.advanceStage());
     this.updateHud();
     this.layout();
     this.addCookie(true);
@@ -56,7 +80,11 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
+    if (this.stage.status !== 'RUNNING') return;
     this.gameplayNow = advanceGameTime(this.gameplayNow, delta, this.modalShop);
+    const status = this.stage.tick(delta, this.modalShop);
+    if (status !== 'RUNNING') { this.finishStage(); return; }
+    this.updateTimer();
     if (this.modalShop) return;
     for (const id of this.model.expire(this.gameplayNow)) this.removeCookie(id);
   }
@@ -70,7 +98,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private addCookie(first = false) {
-    if (this.modalShop) return;
+    if (this.modalShop || this.stage.status !== 'RUNNING') return;
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp, forcedType: first ? 'NORMAL' : undefined });
     if (cookie) this.drawCookie(cookie);
@@ -85,10 +113,8 @@ class GameScene extends Phaser.Scene {
     }
     sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     sprite.on(Phaser.Input.Events.POINTER_DOWN, () => {
-      const hit = this.model.hit(cookie.id, this.upgrades.damage);
+      const hit = applyCookieHit(this.model, this.economy, this.stage, cookie.id, this.upgrades.damage, this.upgrades.reward);
       if (!hit) return;
-      const reward = hit.destroyed ? cookieReward(cookie, this.upgrades.reward) : null;
-      this.economy.recordHit(reward);
       this.updateHud();
       if (!hit.destroyed) {
         this.updateCracks(cookie);
@@ -101,11 +127,12 @@ class GameScene extends Phaser.Scene {
       this.cracks.get(cookie.id)?.destroy();
       this.cracks.delete(cookie.id);
       this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
-      this.floatText(cookie, `+${formatAmount(reward!)}`, cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
+      this.floatText(cookie, `+${formatAmount(hit.reward!)}`, cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
       if (cookie.type === 'GOLDEN') {
         const halo = this.add.circle(cookie.x, cookie.y, cookie.radius + 5).setStrokeStyle(3, 0xffd45f).setDepth(1);
         this.tweens.add({ targets: halo, scale: 1.35, alpha: 0, duration: 260, onComplete: () => halo.destroy() });
       }
+      if (this.stage.status === 'COMPLETED') this.finishStage();
     });
     this.sprites.set(cookie.id, sprite);
     this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1, duration: 180 });
@@ -136,7 +163,25 @@ class GameScene extends Phaser.Scene {
   private startSpawnTimer() {
     this.spawnTimer?.remove(false);
     this.spawnTimer = this.time.addEvent({ delay: this.upgrades.spawnMs, loop: true, callback: () => this.addCookie() });
-    this.spawnTimer.paused = this.modalShop;
+    this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
+  }
+
+  private finishStage() {
+    this.spawnTimer.paused = true;
+    for (const id of this.sprites.keys()) this.removeCookie(id);
+    this.model.active.clear();
+    this.updateHud();
+    this.layoutTerminal();
+  }
+
+  private advanceStage() {
+    const advanced = this.stage.status === 'COMPLETED' ? this.stage.continue() : this.stage.retry();
+    if (!advanced) return;
+    this.shownSeconds = -1;
+    this.updateHud();
+    this.layoutTerminal();
+    this.addCookie(true);
+    this.startSpawnTimer();
   }
 
   private buy(id: UpgradeId) {
@@ -150,6 +195,10 @@ class GameScene extends Phaser.Scene {
 
   private updateHud() {
     this.balanceText.setText(`Cookies: ${formatAmount(this.economy.balance)}`);
+    this.stageText.setText(`Stage ${this.stage.stageNumber}`);
+    this.progressText.setText(`${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} stage cookies`);
+    this.progressFill.setSize(this.progressWidth * this.stage.progressPercent / 100, 10);
+    this.updateTimer();
     this.shopTitle.setText(this.modalShop && this.scale.height < 420 ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES');
     this.statsText.setText(`Earned ${formatAmount(this.economy.lifetimeEarned)}  ·  Destroyed ${this.economy.cookiesDestroyed}  ·  Hits ${this.economy.validHits}`);
     for (const id of UPGRADE_IDS) {
@@ -167,12 +216,20 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  private updateTimer() {
+    const seconds = Math.ceil(this.stage.remainingMs / 1000);
+    if (seconds === this.shownSeconds) return;
+    this.shownSeconds = seconds;
+    this.timerText.setText(`Time ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)
+      .setColor(seconds <= 10 ? '#bd3527' : '#713b20');
+  }
+
   private toggleShop() {
     this.shopOpen = !this.shopOpen;
     this.layout();
-    this.spawnTimer.paused = this.modalShop;
+    this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
     this.syncCookieVisibility();
-    if (!this.modalShop && !this.model.active.size) this.addCookie();
+    if (!this.modalShop && this.stage.status === 'RUNNING' && !this.model.active.size) this.addCookie();
   }
 
   private syncCookieVisibility() {
@@ -189,19 +246,23 @@ class GameScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
     const side = this.sideShop;
+    const playRight = side ? width - 312 : width;
     const compact = !side && height < 420;
     const visible = side || this.shopOpen;
-    this.balanceText.setPosition(width >= 760 ? (side ? width - 332 : width - 20) : 20, width >= 760 ? 20 : 51)
-      .setOrigin(width >= 760 ? 1 : 0, 0);
+    this.timerText.setPosition(playRight - 16, 65);
+    this.statsText.setVisible(width >= 1100);
+    this.progressWidth = Math.min(420, playRight - 40);
+    this.progressBack.setSize(this.progressWidth, 10);
+    this.progressFill.setSize(this.progressWidth * this.stage.progressPercent / 100, 10);
     this.shopBackground.setPosition(side ? width - 312 : compact ? 0 : 8, side || compact ? 0 : RULES.hudHeight)
       .setSize(side ? 312 : compact ? width : width - 16, side || compact ? height : height - RULES.hudHeight).setVisible(visible);
-    this.shopTitle.setPosition(side ? width - 296 : compact ? 16 : 20, side ? 20 : compact ? 12 : 110)
+    this.shopTitle.setPosition(side ? width - 296 : compact ? 16 : 20, side ? 20 : compact ? 12 : RULES.hudHeight + 10)
       .setText(compact && this.shopOpen ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES').setVisible(visible);
-    this.toggleButton.setVisible(!side).setPosition(this.shopOpen ? width - (compact ? 58 : 78) : width / 2, this.shopOpen ? (compact ? 24 : 119) : height - 36)
+    this.toggleButton.setVisible(!side).setPosition(this.shopOpen ? width - (compact ? 58 : 78) : width / 2, this.shopOpen ? (compact ? 24 : RULES.hudHeight + 20) : height - 36)
       .setSize(this.shopOpen ? (compact ? 100 : 116) : 180, this.shopOpen ? 36 : 52);
     this.toggleText.setVisible(!side).setPosition(this.toggleButton.x, this.toggleButton.y)
       .setText(this.shopOpen ? 'Close' : 'Shop / Upgrades');
-    const rowTop = side ? 65 : compact ? 50 : 138;
+    const rowTop = side ? 65 : compact ? 50 : RULES.hudHeight + 38;
     const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * UPGRADE_IDS.length) / UPGRADE_IDS.length));
     UPGRADE_IDS.forEach((id, index) => {
       const row = this.shopRows.get(id)!;
@@ -209,6 +270,23 @@ class GameScene extends Phaser.Scene {
         .setSize(side ? 288 : compact ? width - 16 : width - 32, rowHeight).setVisible(visible);
       row.label.setPosition(row.button.x + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(visible);
     });
+    this.layoutTerminal();
+  }
+
+  private layoutTerminal() {
+    const side = this.sideShop;
+    const width = side ? this.scale.width - 312 : this.scale.width;
+    const height = side ? this.scale.height : this.scale.height - 72;
+    const visible = this.stage.status !== 'RUNNING' && !this.modalShop;
+    this.terminalBackground.setSize(width, height).setVisible(visible);
+    this.terminalText.setPosition(width / 2, height / 2 - 35).setFontSize(width < 300 ? 16 : 19)
+      .setText(`${this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP'}\nStage ${this.stage.stageNumber}\n${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}\nEarned this stage: ${formatAmount(this.stage.earned)}`)
+      .setVisible(visible);
+    this.terminalButton.setPosition(width / 2, height / 2 + 66).setSize(Math.min(190, width - 36), 48).setVisible(visible);
+    this.terminalButtonText.setPosition(width / 2, height / 2 + 66)
+      .setText(this.stage.status === 'COMPLETED' ? 'CONTINUE' : 'RETRY').setVisible(visible);
+    if (visible) this.terminalButton.setInteractive({ useHandCursor: true });
+    else this.terminalButton.disableInteractive();
   }
 
   private onResize() {
@@ -219,9 +297,9 @@ class GameScene extends Phaser.Scene {
       this.sprites.get(cookie.id)?.setPosition(cookie.x, cookie.y);
       this.cracks.get(cookie.id)?.setPosition(cookie.x, cookie.y);
     }
-    this.spawnTimer.paused = this.modalShop;
+    this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
     this.syncCookieVisibility();
-    if (!this.modalShop && !this.model.active.size) this.addCookie();
+    if (!this.modalShop && this.stage.status === 'RUNNING' && !this.model.active.size) this.addCookie();
   }
 }
 

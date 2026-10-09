@@ -1,6 +1,6 @@
 # Cookie Chaos
 
-An infinite arcade clicker game for YouTube Playables.
+An arcade clicker game with timed stages for YouTube Playables.
 
 ## Concept
 
@@ -37,4 +37,4 @@ npm run dev
 
 Run `npm run typecheck`, `npm run test`, and `npm run build` to verify the game.
 
-Collect normal, Golden, and Hard cookies. The shop offers Cookie Value, Cookie Size, Spawn Speed, Click Power, and Golden Luck. On narrow screens, open the shop with the bottom button; cookie lifetimes pause while it is open. Progress resets on reload.
+Collect normal, Golden, and Hard cookies to fill each stage's earned-cookie bar before time runs out. Continue after victory or retry after a timeout. Your spendable balance and upgrades survive stage failures; stage progress resets. The shop offers Cookie Value, Cookie Size, Spawn Speed, Click Power, and Golden Luck. On narrow screens, open the shop with the bottom button; stage time, spawns, and cookie lifetimes pause while it is open. Progress resets on reload.

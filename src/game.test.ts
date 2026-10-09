@@ -35,9 +35,9 @@ describe('SpawnManager', () => {
 
   it('skips impossible geometry and crowded space', () => {
     const game = new SpawnManager(() => 0);
-    expect(game.spawn({ width: 103, height: 191 }, 0)).toBeUndefined();
-    expect(game.spawn({ width: 104, height: 192 }, 0)).toBeDefined();
-    expect(game.spawn({ width: 104, height: 192 }, 0)).toBeUndefined();
+    expect(game.spawn({ width: 103, height: RULES.hudHeight + 91 }, 0)).toBeUndefined();
+    expect(game.spawn({ width: 104, height: RULES.hudHeight + 92 }, 0)).toBeDefined();
+    expect(game.spawn({ width: 104, height: RULES.hudHeight + 92 }, 0)).toBeUndefined();
     expect(game.active.size).toBe(1);
   });
 
@@ -99,6 +99,15 @@ describe('SpawnManager', () => {
     expect(large.y + large.radius).toBeLessThanOrEqual(area.bottom - RULES.edge);
   });
 
+  it('fits an upgraded cookie between the stage HUD and mobile shop strip at 320×320', () => {
+    const game = new SpawnManager(() => 0);
+    const area = { left: 0, top: RULES.hudHeight, right: 320, bottom: 320 - 72 };
+    const cookie = game.spawn({ width: 320, height: 320 }, 0, 56, area)!;
+    expect(cookie).toBeDefined();
+    expect(cookie.y - cookie.radius).toBeGreaterThanOrEqual(RULES.hudHeight);
+    expect(cookie.y + cookie.radius).toBeLessThanOrEqual(area.bottom - RULES.edge);
+  });
+
   it('keeps valid cookies and moves only invalid ones without changing identity or expiry', () => {
     const game = new SpawnManager(() => 0);
     const bounds = { width: 900, height: 700 };
@@ -121,7 +130,7 @@ describe('SpawnManager', () => {
     const economy = new Economy();
     const first = game.spawn({ width: 900, height: 700 }, 10)!;
     const second = game.spawn({ width: 900, height: 700 }, 20)!;
-    const removed = game.resize({ width: 104, height: 192 });
+    const removed = game.resize({ width: 104, height: RULES.hudHeight + 92 });
     expect(removed).toEqual([second.id]);
     expect(game.active.get(first.id)).toBe(first);
     expect(first.expiresAt).toBe(10 + RULES.lifetimeMs);
