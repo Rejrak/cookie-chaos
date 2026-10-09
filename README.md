@@ -28,4 +28,13 @@ discover special cookies and defeat cookie bosses.
 
 ## Development
 
-Work in progress.
+Requires Node.js 22 and npm.
+
+```sh
+npm install
+npm run dev
+```
+
+Run `npm run typecheck`, `npm run test`, and `npm run build` to verify the game.
+
+M1 includes normal cookies, timed spawning, click/tap rewards, and a responsive HUD. Progress resets on reload.
