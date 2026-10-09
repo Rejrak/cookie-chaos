@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BossManager, bossForStage } from './boss';
 import { cycleForStage } from './cycle';
 import { Economy } from './economy';
-import { RULES, SpawnManager, type CookieType } from './game';
+import { RULES, SpawnManager, selectCookieType, type CookieType } from './game';
 import { applyBossHit, applyCookieHit } from './gameplay';
 import { StageManager, stageConfig } from './stage';
 import { UpgradeManager, type UpgradeId } from './upgrades';
@@ -90,10 +90,12 @@ function simulate(strategy: Strategy, rate: number, seed: number) {
         if (stage.status !== 'RUNNING') break;
         const bounds = number % 10 === 0 ? { width: 320, height: 320 } : { width: 900, height: 700 };
         const area = number % 10 === 0 ? { left: 0, top: RULES.hudHeight, right: 320, bottom: 248 } : undefined;
+        // Keep the M7 economy-only baseline free of M8 hazards; survival has its own simulation.
+        const selected = selectCookieType(Math.floor(random() * 10_000), upgrades.goldenChanceBp, number);
         const cookie = spawns.spawn(bounds, now, 40, area, { stageNumber: number,
           goldenChanceBp: upgrades.goldenChanceBp,
           toughNeeded: stage.toughDestroyed < stage.toughRequired,
-          forcedType: spawned === 0 ? 'NORMAL' : undefined });
+          forcedType: spawned === 0 || selected === 'BOMB' ? 'NORMAL' : selected });
         if (!cookie) { nextSpawnAt = now + upgrades.spawnMs; continue; }
         spawned++;
         if (random() < 0.02) {

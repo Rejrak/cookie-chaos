@@ -32,14 +32,14 @@ describe('Reinforced and Titan cookies', () => {
   });
 
   it('unlocks types at stages 4 and 9 with exact basis point weights', () => {
-    expect(cookieProbabilities(500, 4)).toEqual({ NORMAL: 7000, HARD: 1500, GOLDEN: 500,
-      REINFORCED: 1000, TITAN: 0 });
-    expect(cookieProbabilities(500, 9)).toEqual({ NORMAL: 6500, HARD: 1500, GOLDEN: 500,
-      REINFORCED: 1000, TITAN: 500 });
-    expect(cookieProbabilities(2500, 9)).toEqual({ NORMAL: 4500, HARD: 1500, GOLDEN: 2500,
-      REINFORCED: 1000, TITAN: 500 });
-    for (const [stage, roll, type] of [[4, 8999, 'GOLDEN'], [4, 9000, 'REINFORCED'],
-      [9, 9499, 'REINFORCED'], [9, 9500, 'TITAN']] as const) {
+    expect(cookieProbabilities(500, 4)).toEqual({ NORMAL: 6500, HARD: 1500, GOLDEN: 500,
+      REINFORCED: 1000, TITAN: 0, BOMB: 500 });
+    expect(cookieProbabilities(500, 9)).toEqual({ NORMAL: 6000, HARD: 1500, GOLDEN: 500,
+      REINFORCED: 1000, TITAN: 500, BOMB: 500 });
+    expect(cookieProbabilities(2500, 9)).toEqual({ NORMAL: 4000, HARD: 1500, GOLDEN: 2500,
+      REINFORCED: 1000, TITAN: 500, BOMB: 500 });
+    for (const [stage, roll, type] of [[4, 8499, 'GOLDEN'], [4, 8500, 'REINFORCED'],
+      [9, 8999, 'REINFORCED'], [9, 9000, 'TITAN']] as const) {
       expect(selectCookieType(roll, 500, stage)).toBe(type);
       const draws = [0, 0, roll / 10_000];
       expect(new SpawnManager(() => draws.shift() ?? 0).spawn({ width: 300, height: 300 }, 0, 40,

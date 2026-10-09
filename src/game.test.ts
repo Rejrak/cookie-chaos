@@ -141,7 +141,7 @@ describe('SpawnManager', () => {
 
 describe('special cookies', () => {
   it('selects each type at exact weighted boundaries through the injected RNG', () => {
-    expect(cookieProbabilities()).toEqual({ NORMAL: 8000, HARD: 1500, GOLDEN: 500, REINFORCED: 0, TITAN: 0 });
+    expect(cookieProbabilities()).toEqual({ NORMAL: 8000, HARD: 1500, GOLDEN: 500, REINFORCED: 0, TITAN: 0, BOMB: 0 });
     for (const [roll, expected] of [[0, 'NORMAL'], [7999, 'NORMAL'], [8000, 'HARD'],
       [9499, 'HARD'], [9500, 'GOLDEN'], [9999, 'GOLDEN']] as const) {
       expect(selectCookieType(roll)).toBe(expected);
@@ -163,7 +163,7 @@ describe('special cookies', () => {
     for (let i = 0; i < 10; i++) expect(upgrades.buy('luck', economy)).toBe(true);
     expect(upgrades.goldenChanceBp).toBe(2500);
     const chances = cookieProbabilities(upgrades.goldenChanceBp);
-    expect(chances).toEqual({ NORMAL: 6000, HARD: 1500, GOLDEN: 2500, REINFORCED: 0, TITAN: 0 });
+    expect(chances).toEqual({ NORMAL: 6000, HARD: 1500, GOLDEN: 2500, REINFORCED: 0, TITAN: 0, BOMB: 0 });
     expect(Object.values(chances).reduce((sum, value) => sum + value, 0)).toBe(10_000);
     expect(selectCookieType(8000)).toBe('HARD');
     expect(selectCookieType(8000, upgrades.goldenChanceBp)).toBe('GOLDEN');

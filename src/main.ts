@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
-import { applyBossHit, applyCookieHit, applyDamage } from './gameplay';
-import { HealthManager } from './health';
+import { applyBossHit, applyCookieHit, applyDamage, applyBombHit, applyExpiry } from './gameplay';
+import { HealthManager, type DamageResult } from './health';
 import { BOSSES, BossManager } from './boss';
 import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
@@ -117,7 +117,11 @@ class GameScene extends Phaser.Scene {
       return;
     }
     if (this.modalShop) return;
-    for (const cookie of this.model.expire(this.gameplayNow)) this.removeCookie(cookie.id);
+    for (const cookie of this.model.expire(this.gameplayNow)) {
+      this.removeCookie(cookie.id);
+      const result = applyExpiry(cookie, this.health, this.stage, this.gameplayNow);
+      if (result) this.showDamage(result, 1, cookie.x, cookie.y);
+    }
   }
 
   private get sideShop() { return this.scale.width >= 560 && this.scale.height >= 320; }
@@ -147,6 +151,14 @@ class GameScene extends Phaser.Scene {
     }
     sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     sprite.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      if (cookie.type === 'BOMB') {
+        const result = applyBombHit(this.model, this.health, this.stage, cookie.id, this.gameplayNow, this.modalShop);
+        if (!result) return;
+        this.removeCookie(cookie.id);
+        this.floatText(cookie, 'BOOM!', '#bd3527');
+        this.showDamage(result, 1, cookie.x, cookie.y);
+        return;
+      }
       const hit = applyCookieHit(this.model, this.economy, this.stage, cookie.id, this.upgrades.damage, this.upgrades.reward);
       if (!hit) return;
       this.updateHud();
@@ -297,6 +309,10 @@ class GameScene extends Phaser.Scene {
 
   private takeDamage(amount: number, x: number, y: number) {
     const result = applyDamage(this.health, this.stage, amount, this.gameplayNow, this.modalShop);
+    if (result) this.showDamage(result, amount, x, y);
+  }
+
+  private showDamage(result: DamageResult, amount: number, x: number, y: number) {
     if (!result || result === 'invulnerable') return;
     this.floatText({ x, y }, result === 'shield' ? 'SHIELD BLOCK' : `-${amount} HP`,
       result === 'shield' ? '#426da0' : '#bd3527');
