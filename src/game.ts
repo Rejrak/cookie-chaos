@@ -83,13 +83,16 @@ export class SpawnManager {
   }
 
   spawn(bounds: Bounds, now: number, radius: number = RULES.radius, area = defaultArea(bounds),
-    options: { goldenChanceBp?: number; forcedType?: CookieType } = {}): Cookie | undefined {
+    options: { goldenChanceBp?: number; forcedType?: CookieType; hardHp?: number } = {}): Cookie | undefined {
+    const hardHp = options.hardHp ?? COOKIE_TYPES.HARD.hp;
+    if (!Number.isSafeInteger(hardHp) || hardHp < 1) throw new RangeError('Invalid Hard HP');
     if (this.active.size >= RULES.maxCookies) return;
     const position = this.position(radius, area, [...this.active.values()]);
     if (!position) return;
     const type = options.forcedType ?? selectCookieType(Math.floor(this.random() * 10_000), options.goldenChanceBp);
     const definition = COOKIE_TYPES[type];
-    const cookie = { id: this.nextId++, type, ...position, radius, hp: definition.hp, maxHp: definition.hp,
+    const hp = type === 'HARD' ? hardHp : definition.hp;
+    const cookie = { id: this.nextId++, type, ...position, radius, hp, maxHp: hp,
       expiresAt: now + RULES.lifetimeMs, rewardMultiplier: definition.multiplier };
     this.active.set(cookie.id, cookie);
     return cookie;

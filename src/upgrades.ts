@@ -5,7 +5,7 @@ export const UPGRADES = {
   value: { name: 'Cookie Value', description: 'More cookies per hit', baseCost: 14n, quadraticCost: 1n, maxLevel: null, available: true },
   size: { name: 'Cookie Size', description: 'Larger cookies', baseCost: 16n, maxLevel: 4n, available: true },
   speed: { name: 'Spawn Speed', description: 'Faster spawns', baseCost: 20n, maxLevel: 10n, available: true },
-  power: { name: 'Click Power', description: 'More damage per click', baseCost: 25n, maxLevel: 2n, available: true },
+  power: { name: 'Click Power', description: 'More damage per click', baseCost: 25n, maxLevel: null, available: true },
   luck: { name: 'Golden Luck', description: 'More Golden Cookies', baseCost: 40n, chanceStepBp: 200, maxLevel: 10n, available: true },
 } as const;
 
@@ -17,16 +17,32 @@ export function valueCost(level: bigint): bigint {
   return UPGRADES.value.baseCost * (level + 1n) + UPGRADES.value.quadraticCost * level * level;
 }
 
+export function powerCost(level: bigint): bigint {
+  if (level < 0n) throw new RangeError('Level must be nonnegative');
+  return 25n + 13n * level + 2n * level * (level - 1n);
+}
+
 export class UpgradeManager {
   private levels = new Map<UpgradeId, bigint>();
+  private completedCycles = 0n;
+
+  unlockThroughStage(maxCompletedStage: number) {
+    if (!Number.isSafeInteger(maxCompletedStage) || maxCompletedStage < 0 ||
+      BigInt(Math.floor(maxCompletedStage / 12)) < this.completedCycles) throw new RangeError('Invalid completed stage');
+    this.completedCycles = BigInt(Math.floor(maxCompletedStage / 12));
+  }
+
+  get powerLimit(): bigint { return 2n + 2n * this.completedCycles; }
 
   level(id: UpgradeId): bigint { return this.levels.get(id) ?? 0n; }
 
   cost(id: UpgradeId): bigint | null {
     const upgrade = UPGRADES[id];
     const level = this.level(id);
-    if (!upgrade.available || (upgrade.maxLevel !== null && level >= upgrade.maxLevel)) return null;
+    if (!upgrade.available || (upgrade.maxLevel !== null && level >= upgrade.maxLevel) ||
+      (id === 'power' && level >= this.powerLimit)) return null;
     if (id === 'value') return valueCost(level);
+    if (id === 'power') return powerCost(level);
     const denominator = 2n ** level;
     return (upgrade.baseCost * 3n ** level + denominator - 1n) / denominator;
   }

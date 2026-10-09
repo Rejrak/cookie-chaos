@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Economy } from './economy';
-import { UpgradeManager, valueCost } from './upgrades';
+import { UpgradeManager, powerCost, valueCost } from './upgrades';
 
 describe('UpgradeManager', () => {
   it('grows integer costs, increases reward, and deducts only successful purchases', () => {
@@ -112,5 +112,48 @@ describe('UpgradeManager', () => {
       previousTime = timeHundredths;
     }
     expect(previousTime).toBeLessThan(6000n);
+  });
+
+  it('unlocks two Click Power levels only after each completed cycle', () => {
+    const economy = new Economy();
+    const upgrades = new UpgradeManager();
+    economy.grantBossReward(10_000n);
+    expect([0n, 1n, 2n, 3n, 4n].map(powerCost)).toEqual([25n, 38n, 55n, 76n, 101n]);
+    expect(powerCost(10n ** 20n)).toBe(2n * 10n ** 40n + 11n * 10n ** 20n + 25n);
+    expect(() => powerCost(-1n)).toThrow(RangeError);
+    upgrades.unlockThroughStage(11);
+    expect(upgrades.powerLimit).toBe(2n);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.cost('power')).toBeNull();
+    const balance = economy.balance;
+    expect(upgrades.buy('power', economy)).toBe(false);
+    expect(economy.balance).toBe(balance);
+    upgrades.unlockThroughStage(12);
+    expect(upgrades.powerLimit).toBe(4n);
+    expect(upgrades.cost('power')).toBe(55n);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.damage).toBe(5);
+    expect(upgrades.cost('power')).toBeNull();
+    upgrades.unlockThroughStage(24);
+    expect(upgrades.powerLimit).toBe(6n);
+    expect(upgrades.cost('power')).toBe(101n);
+    expect(() => upgrades.unlockThroughStage(23)).toThrow(RangeError);
+    for (const invalid of [-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => upgrades.unlockThroughStage(invalid)).toThrow(RangeError);
+    }
+  });
+
+  it('rejects an unlocked purchase without enough currency', () => {
+    const upgrades = new UpgradeManager();
+    const economy = new Economy();
+    economy.grantBossReward(63n);
+    upgrades.buy('power', economy);
+    upgrades.buy('power', economy);
+    upgrades.unlockThroughStage(12);
+    expect(upgrades.buy('power', economy)).toBe(false);
+    expect(upgrades.level('power')).toBe(2n);
+    expect(economy.balance).toBe(0n);
   });
 });

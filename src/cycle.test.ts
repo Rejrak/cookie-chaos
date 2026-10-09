@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { cycleForStage } from './cycle';
+import { cycleForStage, hardHpForStage } from './cycle';
 import { bossForStage, BossManager } from './boss';
+import { SpawnManager } from './game';
 
 describe('endless cycle metadata and bosses', () => {
   it('maps global stages to cycles', () => {
@@ -28,5 +29,20 @@ describe('endless cycle metadata and bosses', () => {
     }
     expect(bossForStage(13)).toBeUndefined();
     expect(() => bossForStage(Number.MAX_SAFE_INTEGER - 1)).toThrow(RangeError);
+  });
+
+  it('sets Hard HP at spawn without changing existing cookies or other types', () => {
+    const spawns = new SpawnManager(() => 0);
+    const first = spawns.spawn({ width: 900, height: 700 }, 0, 40, undefined,
+      { forcedType: 'HARD', hardHp: hardHpForStage(12) })!;
+    const second = spawns.spawn({ width: 900, height: 700 }, 0, 40, undefined,
+      { forcedType: 'HARD', hardHp: hardHpForStage(24) })!;
+    expect([first.maxHp, second.maxHp, hardHpForStage(36), hardHpForStage(48)]).toEqual([3, 4, 5, 6]);
+    expect(spawns.hit(second.id, 2)).toEqual({ destroyed: false, hp: 2 });
+    expect(spawns.resize({ width: 900, height: 700 })).toEqual([]);
+    expect(spawns.active.get(second.id)).toMatchObject({ hp: 2, maxHp: 4 });
+    expect(first.maxHp).toBe(3);
+    expect(() => spawns.spawn({ width: 300, height: 300 }, 0, 40, undefined,
+      { forcedType: 'HARD', hardHp: Infinity })).toThrow(RangeError);
   });
 });
