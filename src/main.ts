@@ -5,6 +5,7 @@ import { applyBossHit, applyCookieHit } from './gameplay';
 import { BOSSES, BossManager } from './boss';
 import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
+import { hardHpForStage, kingdomName } from './cycle';
 import './style.css';
 
 class GameScene extends Phaser.Scene {
@@ -128,7 +129,8 @@ class GameScene extends Phaser.Scene {
   private addCookie(first = false) {
     if (this.modalShop || this.stage.status !== 'RUNNING') return;
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
-      this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp, forcedType: first ? 'NORMAL' : undefined });
+      this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
+        hardHp: hardHpForStage(this.stage.stageNumber), forcedType: first ? 'NORMAL' : undefined });
     if (cookie) this.drawCookie(cookie);
   }
 
@@ -277,6 +279,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private finishStage() {
+    this.upgrades.unlockThroughStage(this.stage.maxCompletedStage);
     this.spawnTimer.paused = true;
     this.clearCookies();
     this.clearEffects();
@@ -309,10 +312,11 @@ class GameScene extends Phaser.Scene {
 
   private updateHud() {
     this.balanceText.setText(`Cookies: ${formatAmount(this.economy.balance)}`);
-    this.stageText.setText(`Stage ${this.stage.stageNumber}`);
+    this.stageText.setText(`Stage ${this.stage.stageNumber} · ${kingdomName(this.stage.cycle.cycleNumber)}`)
+      .setFontSize(this.scale.width < 400 ? 14 : 17);
     const bossFight = this.stage.status === 'BOSS_FIGHT' && this.boss !== null;
     this.progressText.setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
-      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} stage cookies`);
+      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}${this.stage.isBossCheckpoint ? ' · Boss ahead' : ' stage cookies'}`);
     this.progressFill.setSize(this.progressWidth * (bossFight ? this.boss!.hp / this.boss!.config.bodyHp : this.stage.progressPercent / 100), 10)
       .setFillStyle(bossFight ? 0xb84d35 : 0xc97831);
     this.bossStatusText.setText(bossFight ? this.boss!.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2× DAMAGE' :
@@ -334,10 +338,11 @@ class GameScene extends Phaser.Scene {
         id === 'size' ? `Radius ${this.upgrades.radius}px` :
         id === 'speed' ? `Every ${this.upgrades.spawnMs}ms` :
         id === 'power' ? `Damage ${this.upgrades.damage} / click` : `Golden chance ${this.upgrades.goldenChanceBp / 100}%`;
-      const status = !upgrade.available ? 'Price —  ·  Locked: M3' : cost === null ? 'Price —  ·  MAX' :
+      const status = !upgrade.available ? 'Price —  ·  Locked: M3' : cost === null && id === 'power' ?
+        `Unlock at Stage ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : cost === null ? 'Price —  ·  MAX' :
         `Price ${formatAmount(cost)}  ·  ${this.economy.balance >= cost ? 'BUY' : 'Need more'}`;
       const row = this.shopRows.get(id)!;
-      row.label.setText(`${upgrade.name}  ·  Lv ${this.upgrades.level(id)}\n${effect}\n${status}`);
+      row.label.setText(`${upgrade.name}  ·  Lv ${this.upgrades.level(id)}${id === 'power' ? `/${this.upgrades.powerLimit}` : ''}\n${effect}\n${status}`);
       row.button.setFillStyle(cost !== null && this.economy.balance >= cost ? 0xe9ad63 : 0xe4d4b9);
     }
   }
@@ -421,9 +426,13 @@ class GameScene extends Phaser.Scene {
     const width = side ? this.scale.width - 312 : this.scale.width;
     const height = side ? this.scale.height : this.scale.height - 72;
     const visible = (this.stage.status === 'COMPLETED' || this.stage.status === 'FAILED') && !this.modalShop;
+    const cycleComplete = this.stage.status === 'COMPLETED' && this.stage.cycle.stageInCycle === 12;
+    const result = cycleComplete ? `${kingdomName(this.stage.cycle.cycleNumber).toUpperCase()} COMPLETE` :
+      this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP';
+    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} · Earned ${formatAmount(this.stage.earned)}`;
     this.terminalBackground.setSize(width, height).setVisible(visible);
     this.terminalText.setPosition(width / 2, height / 2 - 35).setFontSize(width < 300 ? 16 : 19)
-      .setText(`${this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP'}\nStage ${this.stage.stageNumber}\n${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}\nEarned this stage: ${formatAmount(this.stage.earned)}${this.lastBossBonus ? `\n${this.lastBossName} bonus: ${formatAmount(this.lastBossBonus)}` : ''}`)
+      .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)
       .setVisible(visible);
     this.terminalButton.setPosition(width / 2, height / 2 + 66).setSize(Math.min(190, width - 36), 48).setVisible(visible);
     this.terminalButtonText.setPosition(width / 2, height / 2 + 66)
