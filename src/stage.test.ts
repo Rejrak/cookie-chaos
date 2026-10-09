@@ -14,12 +14,15 @@ describe('StageManager', () => {
   });
 
   it('uses the twelve configured stages and deterministic later stages', () => {
-    const targets = [12n, 20n, 30n, 40n, 55n, 70n, 85n, 105n, 130n, 160n, 190n, 220n];
+    const targets = [12n, 18n, 23n, 29n, 35n, 42n, 48n, 55n, 63n, 72n, 82n, 90n];
     const durations = [30, 40, 50, 55, 60, 65, 70, 75, 80, 85, 90, 90];
     targets.forEach((target, index) => expect(stageConfig(index + 1)).toEqual({ target,
-      durationMs: durations[index] * 1000, isBossCheckpoint: (index + 1) % 3 === 0 }));
-    expect(stageConfig(13)).toEqual({ target: 240n, durationMs: 90_000, isBossCheckpoint: false });
-    expect(stageConfig(100_000).target).toBe(220n + 20n * 99_988n);
+      durationMs: durations[index] * 1000, isBossCheckpoint: (index + 1) % 3 === 0,
+      toughRequired: index < 3 ? 0 : index < 6 ? 1 : index < 9 ? 2 : 3 }));
+    expect(stageConfig(13)).toEqual({ target: 15n, durationMs: 90_000, isBossCheckpoint: false, toughRequired: 0 });
+    expect(stageConfig(24)).toMatchObject({ target: 93n, toughRequired: 3 });
+    expect(stageConfig(120)).toMatchObject({ target: 117n, toughRequired: 3 });
+    expect(stageConfig(240)).toMatchObject({ target: 120n, toughRequired: 3 });
     for (const invalid of [0, -1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1]) {
       expect(() => stageConfig(invalid)).toThrow(RangeError);
     }
@@ -50,7 +53,7 @@ describe('StageManager', () => {
     expect(stage.tick(100_000)).toBe('COMPLETED');
     expect(stage.retry()).toBe(false);
     expect(stage.continue()).toBe(true);
-    expect(stage).toMatchObject({ stageNumber: 2, target: 20n, progress: 0n, currencyEarned: 0n,
+    expect(stage).toMatchObject({ stageNumber: 2, target: 18n, progress: 0n, currencyEarned: 0n,
       remainingMs: 40_000, status: 'RUNNING', maxCompletedStage: 1 });
     expect(stage.continue()).toBe(false);
     expect(() => stage.recordCollection(0n, 0n)).toThrow(RangeError);
@@ -70,7 +73,7 @@ describe('StageManager', () => {
 
   it('keeps huge bigint rewards exact and converts only bounded percentage', () => {
     const huge = 2n ** 70n;
-    const stage = new StageManager(() => ({ target: huge, durationMs: 30_000, isBossCheckpoint: false }));
+    const stage = new StageManager(() => ({ target: huge, durationMs: 30_000, isBossCheckpoint: false, toughRequired: 0 }));
     stage.recordCollection(huge / 2n, huge / 2n);
     expect(stage.progress).toBe(huge / 2n);
     expect(stage.progressPercent).toBe(50);
@@ -78,21 +81,41 @@ describe('StageManager', () => {
     expect(stage.currencyEarned).toBe(huge + huge / 2n);
     expect(stage.progress).toBe(huge);
     expect(stage.progressPercent).toBe(100);
-    expect(() => new StageManager(() => ({ target: 0n, durationMs: 30_000, isBossCheckpoint: false }))).toThrow(RangeError);
+    expect(() => new StageManager(() => ({ target: 0n, durationMs: 30_000, isBossCheckpoint: false, toughRequired: 0 }))).toThrow(RangeError);
   });
 
-  it('keeps early normal-only stages possible and Cookie Value useful later', () => {
-    const scenarios = [[1, 1n], [3, 1n], [6, 2n], [12, 4n]] as const;
+  it('keeps targets bounded by spawn capacity without scaling them from Cookie Value', () => {
+    const scenarios = [1, 3, 6, 12, 24, 120, 240];
     let previousTarget = 0n;
-    for (const [number, reward] of scenarios) {
+    for (const number of scenarios) {
       const { target, durationMs } = stageConfig(number);
-      const needed = (target + reward - 1n) / reward;
-      const timeMs = Number(needed - 1n) * 1500;
       expect(target).toBeGreaterThan(previousTarget);
-      expect(timeMs).toBeLessThan(durationMs);
+      expect(target).toBeLessThanOrEqual(BigInt(Math.floor(durationMs / 500) + 1));
       previousTarget = target;
     }
-    expect((Number(stageConfig(12).target) - 1) * 1500).toBeGreaterThan(stageConfig(12).durationMs);
+    expect(stageConfig(240).target).toBe(stageConfig(360).target);
+  });
+
+  it('waits for Tough destruction after filling the points bar and resets both goals on retry', () => {
+    const stage = new StageManager();
+    for (let number = 1; number < 4; number++) {
+      stage.recordCollection(stage.target, stage.target);
+      if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
+      stage.continue();
+    }
+    expect(stage).toMatchObject({ stageNumber: 4, target: 29n, toughRequired: 1 });
+    expect(stage.recordCollection(29n, 1000n)).toBe(true);
+    expect(stage).toMatchObject({ status: 'RUNNING', progress: 29n, toughDestroyed: 0, currencyEarned: 1000n });
+    expect(stage.recordCollection(5n, 8n, true)).toBe(true);
+    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 29n, pointsEarned: 34n,
+      toughDestroyed: 1, currencyEarned: 1008n });
+    expect(stage.recordCollection(3n, 6n, true)).toBe(false);
+    stage.continue();
+    stage.tick(stage.remainingMs);
+    expect(stage.status).toBe('FAILED');
+    expect(stage.retry()).toBe(true);
+    expect(stage).toMatchObject({ stageNumber: 5, status: 'RUNNING', progress: 0n,
+      toughDestroyed: 0, currencyEarned: 0n });
   });
 });
 

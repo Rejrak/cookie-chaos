@@ -34,7 +34,7 @@ describe('Reinforced and Titan cookies', () => {
       const cookie = game.spawn({ width: 900, height: 700 }, 0, 40, undefined,
         { stageNumber: stage, forcedType: type })!;
       const economy = new Economy();
-      const stageModel = new StageManager(() => ({ target: 100n, durationMs: 90_000, isBossCheckpoint: false }));
+      const stageModel = new StageManager(() => ({ target: 100n, durationMs: 90_000, isBossCheckpoint: false, toughRequired: 0 }));
       expect(cookie).toMatchObject({ hp, maxHp: hp, rewardMultiplier: multiplier, stagePoints: points, tough: true });
       expect(applyCookieHit(game, economy, stageModel, cookie.id, 2, 3n)).toMatchObject({
         hp: hp - 2, currencyReward: null, stagePoints: null });

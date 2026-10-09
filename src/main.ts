@@ -131,6 +131,7 @@ class GameScene extends Phaser.Scene {
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
         stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
+        toughNeeded: this.stage.toughDestroyed < this.stage.toughRequired,
         forcedType: first ? 'NORMAL' : undefined });
     if (cookie) this.drawCookie(cookie);
   }
@@ -293,6 +294,7 @@ class GameScene extends Phaser.Scene {
   private advanceStage() {
     const advanced = this.stage.status === 'COMPLETED' ? this.stage.continue() : this.stage.retry();
     if (!advanced) return;
+    this.model.resetFairness();
     this.lastBossBonus = 0n;
     this.lastBossName = '';
     this.shownSeconds = -1;
@@ -317,8 +319,12 @@ class GameScene extends Phaser.Scene {
     this.stageText.setText(`Stage ${this.stage.stageNumber} · ${kingdomName(this.stage.cycle.cycleNumber)}`)
       .setFontSize(this.scale.width < 400 ? 14 : 17);
     const bossFight = this.stage.status === 'BOSS_FIGHT' && this.boss !== null;
+    const missingTough = this.stage.toughRequired - this.stage.toughDestroyed;
     this.progressText.setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
-      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)}${this.stage.isBossCheckpoint ? ' · Boss ahead' : ' stage cookies'}`);
+      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP${missingTough > 0 && this.stage.progress === this.stage.target ?
+        ` · Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
+        this.stage.toughRequired ? ` · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}` :
+          this.stage.isBossCheckpoint ? ' · Boss ahead' : ''}`);
     this.progressFill.setSize(this.progressWidth * (bossFight ? this.boss!.hp / this.boss!.config.bodyHp : this.stage.progressPercent / 100), 10)
       .setFillStyle(bossFight ? 0xb84d35 : 0xc97831);
     this.bossStatusText.setText(bossFight ? this.boss!.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2× DAMAGE' :
@@ -431,7 +437,7 @@ class GameScene extends Phaser.Scene {
     const cycleComplete = this.stage.status === 'COMPLETED' && this.stage.cycle.stageInCycle === 12;
     const result = cycleComplete ? `${kingdomName(this.stage.cycle.cycleNumber).toUpperCase()} COMPLETE` :
       this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' : 'TIME UP';
-    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Earned ${formatAmount(this.stage.currencyEarned)} Cookies`;
+    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}\nEarned ${formatAmount(this.stage.currencyEarned)} Cookies`;
     this.terminalBackground.setSize(width, height).setVisible(visible);
     this.terminalText.setPosition(width / 2, height / 2 - 35).setFontSize(width < 300 ? 16 : 19)
       .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)

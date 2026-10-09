@@ -7,10 +7,17 @@ import { StageManager, stageConfig } from './stage';
 import { UpgradeManager } from './upgrades';
 import { cycleForStage } from './cycle';
 
+function fillStage(stage: StageManager) {
+  stage.recordCollection(stage.target, stage.target);
+  while (stage.status === 'RUNNING' && stage.toughDestroyed < stage.toughRequired) {
+    stage.recordCollection(1n, 1n, true);
+  }
+}
+
 function reachStage(number: number) {
   const stage = new StageManager();
   while (stage.stageNumber < number) {
-    stage.recordCollection(stage.target, stage.target);
+    fillStage(stage);
     if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
     expect(stage.continue()).toBe(true);
   }
@@ -117,13 +124,13 @@ describe('BossManager', () => {
 describe('stage and economy boss integration', () => {
   it('finishes ordinary stages directly, starts boss timer fresh, and never carries collection time', () => {
     const ordinary = reachStage(2);
-    ordinary.recordCollection(ordinary.target, ordinary.target);
+    fillStage(ordinary);
     expect(ordinary.status).toBe('COMPLETED');
     const stage = reachStage(3);
     stage.tick(stage.remainingMs - 1);
-    stage.recordCollection(stage.target, stage.target);
+    fillStage(stage);
     expect(stage).toMatchObject({ status: 'BOSS_FIGHT', remainingMs: 25_000, durationMs: 25_000,
-      progress: 30n, maxCompletedStage: 2 });
+      progress: 23n, maxCompletedStage: 2 });
     expect(stage.recordCollection(1n, 1n)).toBe(false);
     expect(stage.continue()).toBe(false);
     expect(stage.retry()).toBe(false);
@@ -151,7 +158,7 @@ describe('stage and economy boss integration', () => {
     economy.recordHit(100n);
     expect(upgrades.buy('power', economy)).toBe(true);
     const cookie = spawns.spawn({ width: 300, height: 300 }, 0)!;
-    stage.recordCollection(stage.target, stage.target);
+    fillStage(stage);
     expect(applyCookieHit(spawns, economy, stage, cookie.id, upgrades.damage, upgrades.reward)).toBeUndefined();
     const fight = new BossManager(3);
     let now = 0;
@@ -176,7 +183,7 @@ describe('stage and economy boss integration', () => {
     const huge = 2n ** 65n;
     economy.recordHit(huge);
     expect(upgrades.buy('value', economy)).toBe(true);
-    stage.recordCollection(stage.target, stage.target);
+    fillStage(stage);
     const fight = new BossManager(12);
     fight.hit(20, 0, huge);
     expect(fight.hit(48, 1, huge)?.reward).toBe(huge * 100n);
@@ -195,12 +202,12 @@ describe('stage and economy boss integration', () => {
     const stage = reachStage(12);
     const economy = new Economy();
     const huge = 2n ** 65n;
-    stage.recordCollection(stage.target, stage.target);
+    fillStage(stage);
     const fight = new BossManager(12);
     applyBossHit(fight, economy, stage, 20, 0, huge);
     const final = applyBossHit(fight, economy, stage, 48, 1, huge);
     expect(final?.reward).toBe(huge * 100n);
-    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 220n, currencyEarned: 220n });
+    expect(stage).toMatchObject({ status: 'COMPLETED', progress: 90n, currencyEarned: 93n });
     expect(economy).toMatchObject({ balance: huge * 100n, lifetimeEarned: huge * 100n,
       bossesDefeated: 1, cookiesDestroyed: 0, validHits: 0 });
     expect(applyBossHit(fight, economy, stage, 1, 2, huge)).toBeUndefined();
@@ -210,7 +217,7 @@ describe('stage and economy boss integration', () => {
   it('routes stage 15 through a scaled boss and continues to stage 16', () => {
     const stage = reachStage(15);
     expect(stage.isBossCheckpoint).toBe(true);
-    stage.recordCollection(stage.target, stage.target);
+    fillStage(stage);
     expect(stage.status).toBe('BOSS_FIGHT');
     expect(stage.completeBoss()).toBe(true);
     expect(stage.continue()).toBe(true);
@@ -249,6 +256,6 @@ describe('stage and economy boss integration', () => {
     expect(upgrades.buy('value', economy)).toBe(true);
     expect(upgrades.reward).toBe(2n);
     expect(economy.balance).toBe(6n);
-    expect((stageConfig(4).target + upgrades.reward - 1n) / upgrades.reward).toBe(20n);
+    expect(stageConfig(4).target).toBe(29n);
   });
 });
