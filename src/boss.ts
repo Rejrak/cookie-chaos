@@ -64,7 +64,10 @@ export class BossManager {
   }
 
   hit(baseDamage: number, now: number, baseReward: bigint) {
-    if (!Number.isSafeInteger(baseDamage) || baseDamage <= 0) throw new RangeError('Invalid boss damage');
+    if (!Number.isSafeInteger(baseDamage) || baseDamage <= 0 ||
+      baseDamage > Math.floor((Number.MAX_SAFE_INTEGER - BOSS_RULES.comboBonus) / 2)) {
+      throw new RangeError('Invalid boss damage');
+    }
     if (!Number.isFinite(now) || now < 0) throw new RangeError('Invalid boss time');
     if (baseReward <= 0n) throw new RangeError('Reward must be positive');
     if (this.lastRageHitAt !== null && now < this.lastRageHitAt) throw new RangeError('Boss time moved backward');

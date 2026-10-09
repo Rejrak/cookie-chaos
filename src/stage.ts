@@ -34,6 +34,7 @@ export class StageManager {
 
   private start(stageNumber: number) {
     const config = this.config(stageNumber);
+    bossForStage(stageNumber); // Reject unsafe scaled boss HP before entering the stage.
     if (config.target <= 0n || !Number.isSafeInteger(config.durationMs) || config.durationMs <= 0) {
       throw new RangeError('Invalid stage config');
     }

@@ -56,7 +56,9 @@ describe('BossManager', () => {
 
   it('rejects invalid damage, reward, and time', () => {
     const fight = new BossManager(3);
-    for (const damage of [0, -1, 1.5, Infinity, NaN]) expect(() => fight.hit(damage, 0, 1n)).toThrow(RangeError);
+    for (const damage of [0, -1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER]) {
+      expect(() => fight.hit(damage, 0, 1n)).toThrow(RangeError);
+    }
     expect(() => fight.hit(1, -1, 1n)).toThrow(RangeError);
     expect(() => fight.hit(1, 0, 0n)).toThrow(RangeError);
     expect(() => fight.tick(NaN)).toThrow(RangeError);

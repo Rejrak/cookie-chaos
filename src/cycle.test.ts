@@ -92,4 +92,30 @@ describe('endless cycle metadata and bosses', () => {
     expect(stage.continue()).toBe(true);
     expect(stage.stageNumber).toBe(25);
   });
+
+  it('keeps scaled boss phases and pays the cycle bonus once', () => {
+    const barbarian = new BossManager(15);
+    expect(barbarian.hit(11, 0, 1n)).toMatchObject({ phase: 'VULNERABLE', hp: 22 });
+    expect(barbarian.hit(2, 2999, 1n)).toMatchObject({ damageDealt: 4, hp: 18 });
+    expect(barbarian.hit(2, 3000, 1n)).toMatchObject({ damageDealt: 2, phase: 'BODY' });
+    const knight = new BossManager(18);
+    expect(knight.hit(16, 0, 1n)).toMatchObject({ protectionHp: 0, hp: 34, phase: 'BODY' });
+    const berserker = new BossManager(21);
+    expect(berserker.hit(25, 0, 1n)).toMatchObject({ hp: 25, phase: 'RAGE' });
+    expect(berserker.hit(1, 1, 1n)?.comboBonus).toBe(0);
+    const stage = new StageManager();
+    while (stage.stageNumber < 24) {
+      stage.recordReward(stage.target);
+      if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
+      stage.continue();
+    }
+    stage.recordReward(stage.target);
+    const economy = new Economy();
+    const cookieng = new BossManager(24);
+    expect(applyBossHit(cookieng, economy, stage, 25, 0, 2n)).toMatchObject({ phase: 'GOLDEN', hp: 68, reward: null });
+    expect(applyBossHit(cookieng, economy, stage, 68, 1, 2n)).toMatchObject({ defeated: true, reward: 400n });
+    expect(applyBossHit(cookieng, economy, stage, 68, 2, 2n)).toBeUndefined();
+    expect(economy).toMatchObject({ balance: 400n, lifetimeEarned: 400n, bossesDefeated: 1,
+      cookiesDestroyed: 0, validHits: 0 });
+  });
 });
