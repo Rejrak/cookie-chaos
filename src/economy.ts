@@ -3,6 +3,7 @@ export class Economy {
   lifetimeEarned = 0n;
   cookiesDestroyed = 0;
   validHits = 0;
+  bossesDefeated = 0;
 
   recordHit(reward: bigint | null) {
     if (reward !== null && reward <= 0n) throw new RangeError('Reward must be positive');
@@ -11,6 +12,13 @@ export class Economy {
     this.balance += reward;
     this.lifetimeEarned += reward;
     this.cookiesDestroyed++;
+  }
+
+  grantBossReward(amount: bigint) {
+    if (amount <= 0n) throw new RangeError('Reward must be positive');
+    this.balance += amount;
+    this.lifetimeEarned += amount;
+    this.bossesDefeated++;
   }
 
   spend(cost: bigint): boolean {
