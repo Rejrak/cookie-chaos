@@ -96,4 +96,44 @@ describe('M8 cookie hazards', () => {
     expect(game.active.size).toBe(0);
     expect(health.hp).toBe(5);
   });
+
+  it('orders lethal damage and collection deterministically in the same frame', () => {
+    const config = () => ({ target: 1n, durationMs: 30_000 as const, isBossCheckpoint: false, toughRequired: 0 });
+    const first = new SpawnManager(() => 0);
+    const health = new HealthManager();
+    health.resetForStage(1, 0);
+    const stage = new StageManager(config);
+    const economy = new Economy();
+    const bomb = first.spawn(area, 0, 40, undefined, { stageNumber: 4, forcedType: 'BOMB' })!;
+    const normal = first.spawn(area, 0, 40, undefined, { forcedType: 'NORMAL' })!;
+    expect(applyBombHit(first, health, stage, bomb.id, 0)).toBe('hp');
+    expect(stage.status).toBe('FAILED');
+    expect(applyCookieHit(first, economy, stage, normal.id, 1, 1n)).toBeUndefined();
+    expect(economy.balance).toBe(0n);
+
+    const second = new SpawnManager(() => 0);
+    const healthy = new HealthManager();
+    healthy.resetForStage(1, 0);
+    const stageWon = new StageManager(config);
+    const collected = second.spawn(area, 0, 40, undefined, { forcedType: 'NORMAL' })!;
+    const lateBomb = second.spawn(area, 0, 40, undefined, { stageNumber: 4, forcedType: 'BOMB' })!;
+    expect(applyCookieHit(second, economy, stageWon, collected.id, 1, 1n)?.destroyed).toBe(true);
+    expect(stageWon.status).toBe('COMPLETED');
+    expect(applyBombHit(second, healthy, stageWon, lateBomb.id, 0)).toBeUndefined();
+    expect(healthy.hp).toBe(1);
+  });
+
+  it('debounces simultaneous dangerous expiries through invulnerability', () => {
+    const game = new SpawnManager(() => 0);
+    const health = new HealthManager();
+    const stage = new StageManager();
+    game.spawn(area, 0, 40, undefined, { stageNumber: 4, forcedType: 'REINFORCED' });
+    game.spawn(area, 0, 40, undefined, { stageNumber: 9, forcedType: 'TITAN' });
+    const expired = game.expire(8000);
+    expect(expired).toHaveLength(2);
+    expect(expired.map(cookie => applyExpiry(cookie, health, stage, 8000)))
+      .toEqual(['hp', 'invulnerable']);
+    expect(health.hp).toBe(4);
+    expect(game.expire(8000)).toEqual([]);
+  });
 });

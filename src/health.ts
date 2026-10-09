@@ -44,10 +44,10 @@ export class HealthManager {
     this.hp = Math.min(this.maxHp, this.hp + amount);
   }
 
-  increaseMaxHealth() {
+  increaseMaxHealth(healCurrent = true) {
     if (!Number.isSafeInteger(this.maxHp + 1)) throw new RangeError('Health exceeds safe integer');
     this.maxHp++;
-    this.heal(1);
+    if (healCurrent) this.heal(1);
   }
 
   addShield(limit: number) {

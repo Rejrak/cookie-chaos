@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, type Cookie, type PlayArea } from './game';
+import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
 import { applyBossHit, applyCookieHit, applyDamage, applyBombHit, applyExpiry } from './gameplay';
 import { HealthManager, type DamageResult } from './health';
@@ -8,6 +8,7 @@ import { BossAttackController } from './boss-attacks';
 import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import { hardHpForStage, kingdomName } from './cycle';
+import { TimeWarp, timeWarpCost } from './time-warp';
 import './style.css';
 
 class GameScene extends Phaser.Scene {
@@ -16,6 +17,7 @@ class GameScene extends Phaser.Scene {
   private upgrades = new UpgradeManager();
   private stage = new StageManager();
   private health = new HealthManager();
+  private warp = new TimeWarp();
   private boss: BossManager | null = null;
   private bossAttack: BossAttackController | null = null;
   private bossSprite?: Phaser.GameObjects.Image;
@@ -33,13 +35,18 @@ class GameScene extends Phaser.Scene {
   private cracks = new Map<number, Phaser.GameObjects.Image>();
   private effects: Phaser.GameObjects.Text[] = [];
   private gameplayNow = 0;
+  private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private shownSeconds = -1;
   private progressWidth = 0;
   private shopRows = new Map<UpgradeId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
   private shopOpen = false;
+  private shopTab: 'OFFENSE' | 'DEFENSE' = 'OFFENSE';
   private spawnTimer!: Phaser.Time.TimerEvent;
   private titleText!: Phaser.GameObjects.Text;
   private balanceText!: Phaser.GameObjects.Text;
+  private healthText!: Phaser.GameObjects.Text;
+  private warpButton!: Phaser.GameObjects.Rectangle;
+  private warpButtonText!: Phaser.GameObjects.Text;
   private statsText!: Phaser.GameObjects.Text;
   private stageText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
@@ -48,6 +55,9 @@ class GameScene extends Phaser.Scene {
   private progressFill!: Phaser.GameObjects.Rectangle;
   private shopBackground!: Phaser.GameObjects.Rectangle;
   private shopTitle!: Phaser.GameObjects.Text;
+  private shopTabs!: { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }[];
+  private warpBuyButton!: Phaser.GameObjects.Rectangle;
+  private warpBuyLabel!: Phaser.GameObjects.Text;
   private toggleButton!: Phaser.GameObjects.Rectangle;
   private toggleText!: Phaser.GameObjects.Text;
   private terminalBackground!: Phaser.GameObjects.Rectangle;
@@ -69,6 +79,14 @@ class GameScene extends Phaser.Scene {
     const heading = { fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#713b20' };
     this.titleText = this.add.text(20, 6, 'Cookie Chaos', { ...heading, fontSize: '26px' }).setDepth(2);
     this.balanceText = this.add.text(20, 37, '', { ...heading, fontSize: '20px' }).setDepth(2);
+    this.healthText = this.add.text(0, 40, '', { ...heading, fontSize: '14px' }).setOrigin(1, 0).setDepth(2);
+    this.warpButton = this.add.rectangle(0, 20, 86, 28, 0x627cad).setDepth(3).setInteractive({ useHandCursor: true });
+    this.warpButtonText = this.add.text(0, 20, '', { fontFamily: 'system-ui, sans-serif',
+      fontSize: '12px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(4);
+    this.warpButton.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      if (this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
+      if (this.warp.activate()) { this.updateWarpButton(); this.floatText(this.warpButton, 'TIME WARP', '#426da0'); }
+    });
     this.stageText = this.add.text(20, 65, '', { ...heading, fontSize: '17px' }).setDepth(2);
     this.timerText = this.add.text(0, 65, '', { ...heading, fontSize: '17px' }).setOrigin(1, 0).setDepth(2);
     this.progressText = this.add.text(20, 86, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#713b20' }).setDepth(2);
@@ -90,12 +108,28 @@ class GameScene extends Phaser.Scene {
     });
     this.shopBackground = this.add.rectangle(0, 0, 1, 1, 0xffe5b6).setOrigin(0).setDepth(4).setInteractive();
     this.shopTitle = this.add.text(0, 0, 'UPGRADES', { ...heading, fontSize: '20px' }).setDepth(5);
+    this.shopTabs = (['OFFENSE', 'DEFENSE'] as const).map(tab => {
+      const button = this.add.rectangle(0, 0, 1, 26, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
+      const label = this.add.text(0, 0, tab, { fontFamily: 'system-ui, sans-serif',
+        fontSize: '13px', fontStyle: 'bold', color: '#57301d' }).setOrigin(0.5, 0).setDepth(6);
+      button.on(Phaser.Input.Events.POINTER_DOWN, () => { this.shopTab = tab; this.layout(); });
+      return { button, label };
+    });
     for (const id of UPGRADE_IDS) {
       const button = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
       const label = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#57301d', lineSpacing: 0 }).setDepth(6);
       button.on(Phaser.Input.Events.POINTER_DOWN, () => this.buy(id));
       this.shopRows.set(id, { button, label });
     }
+    this.warpBuyButton = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
+    this.warpBuyLabel = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif',
+      fontSize: '14px', color: '#57301d' }).setDepth(6);
+    this.warpBuyButton.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      if (this.stage.status === 'BOSS_FIGHT' || !this.warp.buy(this.economy, this.stage.stageNumber)) return;
+      this.updateHud();
+      this.warpBuyButton.setStrokeStyle(3, 0xffffff);
+      this.time.delayedCall(250, () => this.warpBuyButton.setStrokeStyle(0));
+    });
     this.toggleButton = this.add.rectangle(0, 0, 180, 52, 0xb76b36).setDepth(11).setInteractive({ useHandCursor: true });
     this.toggleText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '17px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(12);
     this.toggleButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleShop());
@@ -119,26 +153,33 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT') return;
-    this.gameplayNow = advanceGameTime(this.gameplayNow, delta, this.modalShop);
-    const status = this.stage.tick(delta, this.modalShop);
-    if (status === 'FAILED') { this.finishStage(); return; }
-    this.updateTimer();
-    if (status === 'BOSS_FIGHT') {
-      if (this.boss?.tick(this.gameplayNow)) this.updateHud();
-      const hits = this.bossAttack?.tick(delta, this.boss?.phase ?? 'NORMAL') ?? 0;
-      for (let index = 0; index < hits; index++) {
-        this.takeDamage(1, this.bossSprite?.x ?? 0, this.bossSprite?.y ?? 0);
+    if (this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
+    let remaining = delta;
+    do {
+      const step = Math.min(remaining, 100, this.stage.remainingMs);
+      const threatDelta = this.warp.tick(step);
+      this.gameplayNow = this.warp.gameplayNow;
+      this.updateWarpButton();
+      const status = this.stage.tick(step);
+      if (status === 'FAILED') { this.finishStage(); return; }
+      this.updateTimer();
+      if (status === 'BOSS_FIGHT') {
+        if (this.boss?.tick(this.gameplayNow)) this.updateHud();
+        const hits = this.bossAttack?.tick(threatDelta, this.boss?.phase ?? 'NORMAL') ?? 0;
+        for (let index = 0; index < hits; index++) this.takeDamage(1, this.bossSprite?.x ?? 0, this.bossSprite?.y ?? 0);
+        if (this.health.isDead) return;
+        this.renderAttack();
+      } else {
+        for (const cookie of this.model.expire(this.warp.threatNow)) {
+          this.removeCookie(cookie.id);
+          if (cookie.type === 'BOMB') this.floatText(cookie, 'SAFE', '#3d877c');
+          const result = applyExpiry(cookie, this.health, this.stage, this.gameplayNow);
+          if (result) this.showDamage(result, 1, cookie.x, cookie.y);
+          if (this.health.isDead) return;
+        }
       }
-      this.renderAttack();
-      return;
-    }
-    if (this.modalShop) return;
-    for (const cookie of this.model.expire(this.gameplayNow)) {
-      this.removeCookie(cookie.id);
-      const result = applyExpiry(cookie, this.health, this.stage, this.gameplayNow);
-      if (result) this.showDamage(result, 1, cookie.x, cookie.y);
-    }
+      remaining -= step;
+    } while (remaining > 0);
   }
 
   private get sideShop() { return this.scale.width >= 560 && this.scale.height >= 320; }
@@ -151,7 +192,7 @@ class GameScene extends Phaser.Scene {
 
   private addCookie(first = false) {
     if (this.modalShop || this.stage.status !== 'RUNNING') return;
-    const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
+    const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.warp.threatNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
         stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
         toughNeeded: this.stage.toughDestroyed < this.stage.toughRequired,
@@ -181,7 +222,8 @@ class GameScene extends Phaser.Scene {
       this.updateHud();
       if (!hit.destroyed) {
         this.updateCracks(cookie);
-        this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 0.9, yoyo: true, duration: 70 });
+        if (!this.reducedMotion) this.tweens.add({ targets: sprite,
+          scale: cookie.radius / COOKIE_SOURCE_RADIUS * 0.9, yoyo: true, duration: 70 });
         this.floatText(cookie, `${hit.hp}/${cookie.maxHp} HP`, '#713b20');
         return;
       }
@@ -189,10 +231,12 @@ class GameScene extends Phaser.Scene {
       this.sprites.delete(cookie.id);
       this.cracks.get(cookie.id)?.destroy();
       this.cracks.delete(cookie.id);
-      this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
+      if (this.reducedMotion) sprite.destroy();
+      else this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15,
+        alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
       this.floatText(cookie, `+${formatAmount(hit.stagePoints!)} SP\n+${formatAmount(hit.currencyReward!)} Cookies`,
         cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
-      if (cookie.type === 'GOLDEN') {
+      if (cookie.type === 'GOLDEN' && !this.reducedMotion) {
         const halo = this.add.circle(cookie.x, cookie.y, cookie.radius + 5).setStrokeStyle(3, 0xffd45f).setDepth(1);
         this.tweens.add({ targets: halo, scale: 1.35, alpha: 0, duration: 260, onComplete: () => halo.destroy() });
       }
@@ -200,7 +244,8 @@ class GameScene extends Phaser.Scene {
       else if (this.stage.status === 'COMPLETED') this.finishStage();
     });
     this.sprites.set(cookie.id, sprite);
-    this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1, duration: 180 });
+    this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1,
+      duration: this.reducedMotion ? 0 : 180 });
   }
 
   private floatText(cookie: { x: number; y: number }, value: string, color: string) {
@@ -214,7 +259,10 @@ class GameScene extends Phaser.Scene {
       fontStyle: 'bold', color, align: 'center',
     }).setOrigin(0.5).setDepth(3);
     this.effects.push(effect);
-    this.tweens.add({ targets: effect, y: effect.y - 38, alpha: 0, duration: 600,
+    if (this.reducedMotion) this.time.delayedCall(600, () => {
+      effect.destroy(); this.effects = this.effects.filter(item => item !== effect);
+    });
+    else this.tweens.add({ targets: effect, y: effect.y - 38, alpha: 0, duration: 600,
       onComplete: () => { effect.destroy(); this.effects = this.effects.filter(item => item !== effect); } });
   }
 
@@ -281,7 +329,7 @@ class GameScene extends Phaser.Scene {
     this.floatText(position, `-${hit.damageDealt}`, '#b83225');
     this.tweens.killTweensOf(this.bossSprite);
     this.bossSprite.setAlpha(1);
-    this.tweens.add({ targets: this.bossSprite, alpha: 0.65, yoyo: true, duration: 65 });
+    if (!this.reducedMotion) this.tweens.add({ targets: this.bossSprite, alpha: 0.65, yoyo: true, duration: 65 });
     if (hit.phaseChanged) {
       this.bossGuard?.destroy();
       this.bossGuard = undefined;
@@ -297,7 +345,7 @@ class GameScene extends Phaser.Scene {
     if (hit.defeated) {
       this.lastBossName = this.boss.config.name;
       this.lastBossBonus = hit.reward!;
-      this.cameras.main.flash(220, 255, 213, 108);
+      if (!this.reducedMotion) this.cameras.main.flash(220, 255, 213, 108);
       this.finishStage();
     }
   }
@@ -336,6 +384,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private finishStage() {
+    this.warp.endStage();
     this.upgrades.unlockThroughStage(this.stage.maxCompletedStage);
     this.spawnTimer.paused = true;
     this.clearCookies();
@@ -351,7 +400,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private showDamage(result: DamageResult, amount: number, x: number, y: number) {
-    if (!result || result === 'invulnerable') return;
+    if (result === 'invulnerable') { this.floatText({ x, y }, 'IMMUNE', '#426da0'); return; }
     this.floatText({ x, y }, result === 'shield' ? 'SHIELD BLOCK' : `-${amount} HP`,
       result === 'shield' ? '#426da0' : '#bd3527');
     this.updateHud();
@@ -375,8 +424,8 @@ class GameScene extends Phaser.Scene {
   private buy(id: UpgradeId) {
     if (this.stage.status === 'BOSS_FIGHT') return;
     if (!this.upgrades.buy(id, this.economy)) return;
-    if (id === 'health') this.health.increaseMaxHealth();
-    if (id === 'shield') this.health.addShield(this.upgrades.stageShields);
+    if (id === 'health') this.health.increaseMaxHealth(this.stage.status === 'RUNNING');
+    if (id === 'shield' && this.stage.status === 'RUNNING') this.health.addShield(this.upgrades.stageShields);
     if (id === 'speed') this.startSpawnTimer();
     this.updateHud();
     const row = this.shopRows.get(id)!;
@@ -386,11 +435,14 @@ class GameScene extends Phaser.Scene {
 
   private updateHud() {
     this.balanceText.setText(`Cookies: ${formatAmount(this.economy.balance)}`);
-    this.stageText.setText(`Stage ${this.stage.stageNumber} · ${kingdomName(this.stage.cycle.cycleNumber)}`)
-      .setFontSize(this.scale.width < 400 ? 14 : 17);
+    this.healthText.setText(`HP ${this.health.hp}/${this.health.maxHp} · S ${this.health.shields}`);
+    this.updateWarpButton();
     const bossFight = this.stage.status === 'BOSS_FIGHT' && this.boss !== null;
+    const playRight = bossFight ? this.scale.width : this.sideShop ? this.scale.width - 312 : this.scale.width;
+    this.stageText.setText(`Stage ${this.stage.stageNumber} · ${kingdomName(this.stage.cycle.cycleNumber)}`)
+      .setFontSize(playRight < 400 ? 14 : 17);
     const missingTough = this.stage.toughRequired - this.stage.toughDestroyed;
-    this.progressText.setFontSize(this.scale.width < 400 ? 12 : 14).setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
+    this.progressText.setFontSize(playRight < 400 ? 12 : 14).setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
       `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP${missingTough > 0 && this.stage.progress === this.stage.target ?
         ` · Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
         this.stage.toughRequired ? ` · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}` :
@@ -415,14 +467,36 @@ class GameScene extends Phaser.Scene {
       const effect = id === 'value' ? `${formatAmount(this.upgrades.reward)} Cookies / Normal` :
         id === 'size' ? `Radius ${this.upgrades.radius}px` :
         id === 'speed' ? `${this.upgrades.spawnMs} ms / spawn` :
-        id === 'power' ? `${this.upgrades.damage} damage / click` : `Golden chance ${this.upgrades.goldenChanceBp / 100}%`;
+        id === 'power' ? `${this.upgrades.damage} damage / click` :
+          id === 'luck' ? `Golden chance ${this.upgrades.goldenChanceBp / 100}%` :
+            id === 'health' ? `${this.upgrades.maxHp} maximum HP` : `${this.upgrades.stageShields} shields / stage`;
       const status = !upgrade.available ? 'Price —  ·  Locked: M3' : cost === null && id === 'power' ?
         `Unlock at Stage ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : cost === null ? 'Price —  ·  MAX' :
         `Price ${formatAmount(cost)}  ·  ${this.economy.balance >= cost ? 'BUY' : 'Need more'}`;
       const row = this.shopRows.get(id)!;
-      row.label.setText(`${upgrade.name}  ·  Lv ${this.upgrades.level(id)}${id === 'power' ? `/${this.upgrades.powerLimit}` : ''}\n${effect}\n${status}`);
+      const shortPrice = cost === null ? id === 'power' ?
+        `Unlock Stage ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : 'MAX' :
+        `${formatAmount(cost)} Cookies`;
+      row.label.setText(this.scale.height < 420 ?
+        `${upgrade.name} Lv ${this.upgrades.level(id)} · ${shortPrice}\n${effect} · ${cost === null ? id === 'power' ? 'WAIT' : 'MAX' : this.economy.balance >= cost ? 'BUY' : 'Need more'}` :
+        `${upgrade.name}  ·  Lv ${this.upgrades.level(id)}${id === 'power' ? `/${this.upgrades.powerLimit}` : ''}\n${effect}\n${status}`);
       row.button.setFillStyle(cost !== null && this.economy.balance >= cost ? 0xe9ad63 : 0xe4d4b9);
     }
+    const warpCost = timeWarpCost(this.stage.stageNumber);
+    this.warpBuyLabel.setText(this.scale.height < 420 ?
+      `Time Warp · ${this.warp.charges}/3 · ${formatAmount(warpCost)} Cookies\n6s slower threats · ${this.warp.charges >= 3 ? 'FULL' : this.economy.balance >= warpCost ? 'BUY' : 'Need more'}` :
+      `Time Warp · ${this.warp.charges}/3 charges\n6s slower threats; stage timer normal\nPrice ${formatAmount(warpCost)} · ${this.warp.charges >= 3 ? 'FULL' : this.economy.balance >= warpCost ? 'BUY' : 'Need more'}`);
+    this.warpBuyButton.setFillStyle(this.warp.charges < 3 && this.economy.balance >= warpCost ? 0xe9ad63 : 0xe4d4b9);
+  }
+
+  private updateWarpButton() {
+    const activeStage = this.stage.status === 'RUNNING' || this.stage.status === 'BOSS_FIGHT';
+    const visible = activeStage && !this.modalShop && (this.warp.charges > 0 || this.warp.active);
+    this.warpButton.setVisible(visible).setFillStyle(this.warp.active ? 0x3d877c : 0x627cad);
+    this.warpButtonText.setVisible(visible).setText(this.warp.active ?
+      `WARP ${Math.ceil(this.warp.remainingMs / 1000)}s` : `WARP ×${this.warp.charges}`);
+    if (visible && !this.warp.active) this.warpButton.setInteractive();
+    else this.warpButton.disableInteractive();
   }
 
   private updateTimer() {
@@ -460,7 +534,12 @@ class GameScene extends Phaser.Scene {
     const playRight = bossFight ? width : side ? width - 312 : width;
     const compact = !side && height < 420;
     const visible = (side || this.shopOpen) && !bossFight;
-    this.timerText.setPosition(playRight - 16, 65);
+    this.titleText.setFontSize(playRight < 400 ? 18 : 26);
+    this.balanceText.setFontSize(playRight < 400 ? 16 : 20);
+    this.healthText.setPosition(playRight - 16, 40).setFontSize(playRight < 400 ? 12 : 14);
+    this.warpButton.setPosition(playRight - 59, 20);
+    this.warpButtonText.setPosition(playRight - 59, 20);
+    this.timerText.setPosition(playRight - 16, 65).setFontSize(playRight < 300 ? 14 : 17);
     this.statsText.setVisible(width >= 1100 && !bossFight);
     this.progressWidth = Math.min(420, playRight - 40);
     this.progressBack.setSize(this.progressWidth, 10);
@@ -481,20 +560,44 @@ class GameScene extends Phaser.Scene {
       .setSize(this.shopOpen ? (compact ? 100 : 116) : 180, this.shopOpen ? 36 : 52);
     this.toggleText.setVisible(!side && !bossFight).setPosition(this.toggleButton.x, this.toggleButton.y)
       .setText(this.shopOpen ? 'Close' : 'Shop / Upgrades');
-    const rowTop = side ? 65 : compact ? 50 : RULES.hudHeight + 38;
-    const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * UPGRADE_IDS.length) / UPGRADE_IDS.length));
-    UPGRADE_IDS.forEach((id, index) => {
+    const shopX = side ? width - 300 : compact ? 8 : 16;
+    const shopWidth = side ? 288 : compact ? width - 16 : width - 32;
+    const tabY = side ? 52 : compact ? 50 : RULES.hudHeight + 42;
+    this.shopTabs.forEach((tab, index) => {
+      tab.button.setPosition(shopX + index * shopWidth / 2, tabY)
+        .setSize(shopWidth / 2 - 2, 26).setVisible(visible)
+        .setFillStyle(this.shopTab === (index === 0 ? 'OFFENSE' : 'DEFENSE') ? 0xe9ad63 : 0xe4d4b9);
+      tab.label.setPosition(tab.button.x + tab.button.width / 2, tabY + 5).setVisible(visible);
+      if (visible) tab.button.setInteractive({ useHandCursor: true });
+      else tab.button.disableInteractive();
+    });
+    const ids: UpgradeId[] = this.shopTab === 'OFFENSE' ? UPGRADE_IDS.filter(id => id !== 'health' && id !== 'shield') :
+      UPGRADE_IDS.filter(id => id === 'health' || id === 'shield');
+    const rowTop = tabY + 34;
+    const rows = this.shopTab === 'OFFENSE' ? ids.length : ids.length + 1;
+    const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * (rows - 1) - 8) / rows));
+    UPGRADE_IDS.forEach(id => {
       const row = this.shopRows.get(id)!;
-      row.button.setPosition(side ? width - 300 : compact ? 8 : 16, rowTop + index * (rowHeight + 4))
-        .setSize(side ? 288 : compact ? width - 16 : width - 32, rowHeight).setVisible(visible);
-      row.label.setPosition(row.button.x + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(visible);
-      if (visible) row.button.setInteractive({ useHandCursor: true });
+      const index = ids.indexOf(id);
+      const rowVisible = visible && index >= 0;
+      if (index >= 0) row.button.setPosition(shopX, rowTop + index * (rowHeight + 4)).setSize(shopWidth, rowHeight);
+      row.button.setVisible(rowVisible);
+      row.label.setPosition(row.button.x + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(rowVisible);
+      if (rowVisible) row.button.setInteractive({ useHandCursor: true });
       else row.button.disableInteractive();
     });
+    const warpVisible = visible && this.shopTab === 'DEFENSE';
+    this.warpBuyButton.setPosition(shopX, rowTop + ids.length * (rowHeight + 4))
+      .setSize(shopWidth, rowHeight).setVisible(warpVisible);
+    this.warpBuyLabel.setPosition(shopX + 10, this.warpBuyButton.y + 3)
+      .setFontSize(rowHeight < 54 ? 12 : 14).setVisible(warpVisible);
+    if (warpVisible) this.warpBuyButton.setInteractive({ useHandCursor: true });
+    else this.warpBuyButton.disableInteractive();
     if (visible) this.shopBackground.setInteractive();
     else this.shopBackground.disableInteractive();
     if (!side && !bossFight) this.toggleButton.setInteractive({ useHandCursor: true });
     else this.toggleButton.disableInteractive();
+    this.updateWarpButton();
     this.layoutBoss();
     this.layoutTerminal();
   }
@@ -524,6 +627,7 @@ class GameScene extends Phaser.Scene {
   private onResize() {
     if (this.sideShop) this.shopOpen = false;
     this.layout();
+    this.updateHud();
     for (const id of this.model.resize({ width: this.scale.width, height: this.scale.height }, this.playArea)) this.removeCookie(id);
     for (const cookie of this.model.active.values()) {
       this.sprites.get(cookie.id)?.setPosition(cookie.x, cookie.y);

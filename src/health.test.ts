@@ -22,6 +22,8 @@ describe('survival core', () => {
     expect(health.hp).toBe(0);
     expect(health.isDead).toBe(true);
     expect(health.takeDamage(1, 3000)).toBe('invulnerable');
+    health.increaseMaxHealth(false);
+    expect(health).toMatchObject({ hp: 0, maxHp: 8 });
     expect(health.damageEvents).toBe(2);
     expect(health.blockedEvents).toBe(2);
     health.resetForStage(6, 1);

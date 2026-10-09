@@ -14,7 +14,6 @@ discover special cookies and defeat cookie bosses.
 - Phaser 3
 - Vite
 - SVG-first graphics
-- YouTube Playables SDK
 
 ## Features planned
 
@@ -41,4 +40,8 @@ Destroy cookies to earn spendable Cookies and separate Stage Points. Cookie Valu
 
 Every 12 stages form a Kingdom. Positions 3, 6, 9, and 12 of each Kingdom start separate timed fights against Cookie Barbarian, Cookie Knight, Cookie Berserker, and The Cookieng after both collection goals are met. Armor, shield, and crown absorb a full hit without passing excess damage to the body. Barbarian takes double body damage for three seconds after armor breaks; Berserker gains a timely three-hit combo in Rage. Boss bonuses grow with the Kingdom number and increase spendable and lifetime Cookies, not Stage Points or normal-cookie statistics. Defeating each Cookieng unlocks two more Click Power levels. Continue after victory or retry after a timeout; balance and upgrades survive failures. The shop is disabled during boss fights; on narrow screens its modal pauses collection time, spawns, and cookie lifetimes. Progress resets on reload.
 
+Survival starts each stage at 5 HP. Bomb Cookies appear from stage 4: clicking one hurts, while letting it expire is safe. Expired Reinforced and Titan cookies deal 1 damage. Shields absorb one damage event each; 750 ms of invulnerability follows a damaging or blocked event. The Defense shop tab sells permanent Max Health and Shield upgrades plus up to three Time Warp charges. Time Warp lasts six active seconds and halves cookie expiry and boss attack timing, while stage timers and spawns stay at normal speed. Bosses telegraph attacks and display a separate PARRY target during touch-friendly windows. A successful parry blocks the strike and stuns the attacker for 800 ms. Loss of all HP ends the stage; Retry restores HP and purchased shields without losing currency or upgrades.
+
 Endless progression uses exact `bigint` currency, Stage Points, and targets. Stage numbers and HP use JavaScript safe integers; unsafe scaling is rejected. The deterministic balance test walks stages 1–240 for economy, combat, and balanced purchase strategies at 2 and 4 clicks/s across three RNG seeds. It pays for upgrades from earned currency and includes misses, expirations, partial hits, retries, and a restricted viewport. Its timings are a model, not measured human play.
+
+The isolated survival simulation checks stages 4, 6, 9, 12, 18, 24, and 36 across three seeds, with accidental bomb clicks, dangerous expiry, missed clicks, boss attacks, parry rates, and retries. It starts with a representative prior balance and pays for offensive and defensive upgrades. It measures survival separately from the full economy progression test; neither simulation replaces a human playtest.

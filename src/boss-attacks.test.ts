@@ -97,4 +97,17 @@ describe('boss attacks and parry', () => {
     expect(attack.attemptParry()).toBe(false);
     expect(attack.tick(100_000, 'ARMOR')).toBe(0);
   });
+
+  it('treats Rage strikes as separate damage events with active-time invulnerability', () => {
+    const attack = new BossAttackController(9);
+    const health = new HealthManager();
+    const stage = new StageManager();
+    let now = 0;
+    while (now < 6000) {
+      now += 100;
+      for (let hit = 0; hit < attack.tick(100, 'RAGE'); hit++) applyDamage(health, stage, 1, now);
+    }
+    expect(health.hp).toBe(3);
+    expect(health.damageEvents).toBe(2);
+  });
 });
