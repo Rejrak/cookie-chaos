@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { cycleForStage, hardHpForStage } from './cycle';
 import { bossForStage, BossManager } from './boss';
 import { SpawnManager } from './game';
+import { StageManager } from './stage';
+import { Economy } from './economy';
+import { UpgradeManager } from './upgrades';
+import { applyBossHit } from './gameplay';
 
 describe('endless cycle metadata and bosses', () => {
   it('maps global stages to cycles', () => {
@@ -44,5 +48,48 @@ describe('endless cycle metadata and bosses', () => {
     expect(first.maxHp).toBe(3);
     expect(() => spawns.spawn({ width: 300, height: 300 }, 0, 40, undefined,
       { forcedType: 'HARD', hardHp: Infinity })).toThrow(RangeError);
+  });
+
+  it('continues from Cookieng I to Stage 13 and unlocks power only after victory', () => {
+    const stage = new StageManager();
+    const economy = new Economy();
+    const upgrades = new UpgradeManager();
+    for (let number = 1; number <= 12; number++) {
+      expect(stage.stageNumber).toBe(number);
+      stage.recordReward(stage.target);
+      if (stage.status === 'BOSS_FIGHT') {
+        const boss = new BossManager(number);
+        const now = 0;
+        while (!boss.defeated) applyBossHit(boss, economy, stage, 100, now, upgrades.reward);
+      }
+      if (number < 12) expect(upgrades.powerLimit).toBe(2n);
+      upgrades.unlockThroughStage(stage.maxCompletedStage);
+      expect(stage.continue()).toBe(true);
+    }
+    expect(stage).toMatchObject({ stageNumber: 13, maxCompletedStage: 12, target: 240n, status: 'RUNNING' });
+    expect(stage.cycle).toMatchObject({ cycleNumber: 2, stageInCycle: 1 });
+    expect(upgrades.powerLimit).toBe(4n);
+    expect(economy.bossesDefeated).toBe(4);
+    expect(stage.continue()).toBe(false);
+  });
+
+  it('retries global stage 24 with fresh collection and boss timers', () => {
+    const stage = new StageManager();
+    while (stage.stageNumber < 24) {
+      stage.recordReward(stage.target);
+      if (stage.status === 'BOSS_FIGHT') stage.completeBoss();
+      stage.continue();
+    }
+    expect(stage.cycle).toMatchObject({ cycleNumber: 2, stageInCycle: 12 });
+    stage.recordReward(stage.target);
+    expect(stage).toMatchObject({ status: 'BOSS_FIGHT', remainingMs: 50_000, progress: 460n });
+    stage.tick(50_000);
+    expect(stage.retry()).toBe(true);
+    expect(stage).toMatchObject({ stageNumber: 24, status: 'RUNNING', remainingMs: 90_000, progress: 0n });
+    stage.recordReward(stage.target);
+    expect(stage.completeBoss()).toBe(true);
+    expect(stage.maxCompletedStage).toBe(24);
+    expect(stage.continue()).toBe(true);
+    expect(stage.stageNumber).toBe(25);
   });
 });

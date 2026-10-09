@@ -24,7 +24,7 @@ describe('BossManager', () => {
         [9, 0, 34, 38_000, 60n], [12, 20, 48, 50_000, 100n]]);
     for (const number of [1, 2, 4, 5, 13, 14]) expect(bossForStage(number)).toBeUndefined();
     expect(stageConfig(15).isBossCheckpoint).toBe(true);
-    expect(bossForStage(15)).toMatchObject({ id: 'barbarian', name: 'Cookie Barbarian 2', bodyHp: 22, protectionHp: 11, multiplier: 40n });
+    expect(bossForStage(15)).toMatchObject({ id: 'barbarian', name: 'Cookie Barbarian II', bodyHp: 22, protectionHp: 11, multiplier: 40n });
   });
 
   it('uses Click Power 0–2 and keeps HP nonnegative at all rates', () => {

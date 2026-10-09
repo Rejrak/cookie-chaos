@@ -9,3 +9,11 @@ export function hardHpForStage(stageNumber: number): number {
   if (!Number.isSafeInteger(hp)) throw new RangeError('Hard HP exceeds safe integer');
   return hp;
 }
+
+export function cycleLabel(cycleNumber: number): string {
+  if (!Number.isSafeInteger(cycleNumber) || cycleNumber < 1) throw new RangeError('Invalid cycle number');
+  const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  return roman[cycleNumber - 1] ?? String(cycleNumber);
+}
+
+export function kingdomName(cycleNumber: number): string { return `Kingdom ${cycleLabel(cycleNumber)}`; }

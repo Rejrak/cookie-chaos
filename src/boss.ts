@@ -1,4 +1,4 @@
-import { cycleForStage } from './cycle';
+import { cycleForStage, cycleLabel } from './cycle';
 
 export const BOSSES = {
   3: { id: 'barbarian', stage: 3, name: 'Cookie Barbarian', protection: 'Armor', protectionHp: 8, bodyHp: 14,
@@ -24,7 +24,7 @@ export function bossForStage(stageNumber: number): BossDefinition | undefined {
   const bodyHp = base.bodyHp + base.bodyGrowth * cycleIndex;
   const protectionHp = base.protectionHp + base.protectionGrowth * cycleIndex;
   if (!Number.isSafeInteger(bodyHp) || !Number.isSafeInteger(protectionHp)) throw new RangeError('Boss HP exceeds safe integer');
-  return { ...base, stage: stageNumber, name: cycleNumber === 1 ? base.name : `${base.name} ${cycleNumber}`,
+  return { ...base, stage: stageNumber, name: cycleNumber === 1 ? base.name : `${base.name} ${cycleLabel(cycleNumber)}`,
     bodyHp, protectionHp, multiplier: base.multiplier * BigInt(cycleNumber) };
 }
 

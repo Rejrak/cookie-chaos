@@ -1,4 +1,5 @@
 import { bossForStage } from './boss';
+import { cycleForStage } from './cycle';
 
 const TARGETS = [12n, 20n, 30n, 40n, 55n, 70n, 85n, 105n, 130n, 160n, 190n, 220n] as const;
 const DURATIONS_MS = [30_000, 40_000, 50_000, 55_000, 60_000, 65_000, 70_000, 75_000, 80_000, 85_000, 90_000, 90_000] as const;
@@ -28,6 +29,7 @@ export class StageManager {
   constructor(private readonly config: typeof stageConfig = stageConfig) { this.start(1); }
 
   get isBossCheckpoint() { return this.stageNumber % 3 === 0; }
+  get cycle() { return cycleForStage(this.stageNumber); }
   get progressPercent() { return Number(this.progress * 100n / this.target); }
 
   private start(stageNumber: number) {
