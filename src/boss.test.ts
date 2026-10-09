@@ -5,6 +5,7 @@ import { SpawnManager } from './game';
 import { applyBossHit, applyCookieHit } from './gameplay';
 import { StageManager, stageConfig } from './stage';
 import { UpgradeManager } from './upgrades';
+import { cycleForStage } from './cycle';
 
 function reachStage(number: number) {
   const stage = new StageManager();
@@ -17,13 +18,13 @@ function reachStage(number: number) {
 }
 
 describe('BossManager', () => {
-  it('configures only four distinct bosses and preserves later checkpoint metadata', () => {
+  it('configures four distinct bosses and rotates them across cycles', () => {
     expect(Object.values(BOSSES).map(boss => [boss.stage, boss.protectionHp, boss.bodyHp, boss.durationMs, boss.multiplier]))
       .toEqual([[3, 8, 14, 25_000, 20n], [6, 12, 22, 32_000, 35n],
         [9, 0, 34, 38_000, 60n], [12, 20, 48, 50_000, 100n]]);
-    for (const number of [1, 2, 4, 5, 13, 15]) expect(bossForStage(number)).toBeUndefined();
+    for (const number of [1, 2, 4, 5, 13, 14]) expect(bossForStage(number)).toBeUndefined();
     expect(stageConfig(15).isBossCheckpoint).toBe(true);
-    expect(() => new BossManager(15)).toThrow(RangeError);
+    expect(bossForStage(15)).toMatchObject({ id: 'barbarian', name: 'Cookie Barbarian 2', bodyHp: 22, protectionHp: 11, multiplier: 40n });
   });
 
   it('uses Click Power 0–2 and keeps HP nonnegative at all rates', () => {
@@ -204,11 +205,12 @@ describe('stage and economy boss integration', () => {
     expect(economy.balance).toBe(huge * 100n);
   });
 
-  it('keeps stage 15 an ordinary completion despite boss checkpoint metadata', () => {
+  it('routes stage 15 through a scaled boss and continues to stage 16', () => {
     const stage = reachStage(15);
     expect(stage.isBossCheckpoint).toBe(true);
     stage.recordReward(stage.target);
-    expect(stage.status).toBe('COMPLETED');
+    expect(stage.status).toBe('BOSS_FIGHT');
+    expect(stage.completeBoss()).toBe(true);
     expect(stage.continue()).toBe(true);
     expect(stage.stageNumber).toBe(16);
   });

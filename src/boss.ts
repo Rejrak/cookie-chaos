@@ -1,20 +1,31 @@
+import { cycleForStage } from './cycle';
+
 export const BOSSES = {
   3: { id: 'barbarian', stage: 3, name: 'Cookie Barbarian', protection: 'Armor', protectionHp: 8, bodyHp: 14,
-    durationMs: 25_000, multiplier: 20n, texture: 'boss-barbarian' },
+    protectionGrowth: 3, bodyGrowth: 8, durationMs: 25_000, multiplier: 20n, texture: 'boss-barbarian' },
   6: { id: 'knight', stage: 6, name: 'Cookie Knight', protection: 'Shield', protectionHp: 12, bodyHp: 22,
-    durationMs: 32_000, multiplier: 35n, texture: 'boss-knight' },
+    protectionGrowth: 4, bodyGrowth: 12, durationMs: 32_000, multiplier: 35n, texture: 'boss-knight' },
   9: { id: 'berserker', stage: 9, name: 'Cookie Berserker', protection: null, protectionHp: 0, bodyHp: 34,
-    durationMs: 38_000, multiplier: 60n, texture: 'boss-berserker' },
+    protectionGrowth: 0, bodyGrowth: 16, durationMs: 38_000, multiplier: 60n, texture: 'boss-berserker' },
   12: { id: 'cookieng', stage: 12, name: 'The Cookieng', protection: 'Crown', protectionHp: 20, bodyHp: 48,
-    durationMs: 50_000, multiplier: 100n, texture: 'boss-cookieng' },
+    protectionGrowth: 5, bodyGrowth: 20, durationMs: 50_000, multiplier: 100n, texture: 'boss-cookieng' },
 } as const;
 
 export const BOSS_RULES = { vulnerabilityMs: 3000, comboWindowMs: 1300, comboHits: 3, comboBonus: 1 } as const;
-export type BossDefinition = typeof BOSSES[keyof typeof BOSSES];
+export type BossDefinition = Omit<typeof BOSSES[keyof typeof BOSSES], 'stage' | 'name' | 'protectionHp' | 'bodyHp' | 'multiplier'> & {
+  stage: number; name: string; protectionHp: number; bodyHp: number; multiplier: bigint;
+};
 export type BossPhase = 'ARMOR' | 'VULNERABLE' | 'BODY' | 'SHIELD' | 'NORMAL' | 'RAGE' | 'CROWN' | 'GOLDEN';
 
 export function bossForStage(stageNumber: number): BossDefinition | undefined {
-  return BOSSES[stageNumber as keyof typeof BOSSES];
+  const { cycleIndex, cycleNumber, stageInCycle } = cycleForStage(stageNumber);
+  const base = BOSSES[stageInCycle as keyof typeof BOSSES];
+  if (!base) return;
+  const bodyHp = base.bodyHp + base.bodyGrowth * cycleIndex;
+  const protectionHp = base.protectionHp + base.protectionGrowth * cycleIndex;
+  if (!Number.isSafeInteger(bodyHp) || !Number.isSafeInteger(protectionHp)) throw new RangeError('Boss HP exceeds safe integer');
+  return { ...base, stage: stageNumber, name: cycleNumber === 1 ? base.name : `${base.name} ${cycleNumber}`,
+    bodyHp, protectionHp, multiplier: base.multiplier * BigInt(cycleNumber) };
 }
 
 export class BossManager {
