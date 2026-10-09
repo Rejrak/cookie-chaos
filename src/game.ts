@@ -4,7 +4,7 @@ export const RULES = {
   maxCookies: 7,
   radius: 40,
   gap: 12,
-  hudHeight: 100,
+  hudHeight: 120,
   edge: 12,
 } as const;
 
