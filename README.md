@@ -37,4 +37,4 @@ npm run dev
 
 Run `npm run typecheck`, `npm run test`, and `npm run build` to verify the game.
 
-M1 includes normal cookies, timed spawning, click/tap rewards, and a responsive HUD. Progress resets on reload.
+Collect normal cookies, then buy Cookie Value, Cookie Size, and Spawn Speed in the shop. On narrow screens, open the shop with the bottom button. Click Power and Golden Luck unlock in a later milestone. Progress resets on reload.

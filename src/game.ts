@@ -3,52 +3,67 @@ export const RULES = {
   lifetimeMs: 8000,
   maxCookies: 7,
   hp: 1,
-  reward: 1,
   radius: 40,
   gap: 12,
   hudHeight: 100,
   edge: 12,
 } as const;
 
-export type Cookie = { id: number; x: number; y: number; hp: number; expiresAt: number };
+export type Cookie = { id: number; x: number; y: number; radius: number; hp: number; expiresAt: number };
 export type Bounds = { width: number; height: number };
+export type PlayArea = { left: number; top: number; right: number; bottom: number };
+
+export function defaultArea(bounds: Bounds): PlayArea {
+  return { left: 0, top: RULES.hudHeight, right: bounds.width, bottom: bounds.height };
+}
 
 export class SpawnManager {
   readonly active = new Map<number, Cookie>();
-  balance = 0;
-  destroyed = 0;
   private nextId = 0;
 
   constructor(private readonly random: () => number = Math.random) {}
 
-  spawn(bounds: Bounds, now: number): Cookie | undefined {
-    if (this.active.size >= RULES.maxCookies) return;
-    const minX = RULES.edge + RULES.radius;
-    const maxX = bounds.width - minX;
-    const minY = RULES.hudHeight + RULES.radius;
-    const maxY = bounds.height - minX;
-    if (maxX < minX || maxY < minY) return;
+  private fits(x: number, y: number, radius: number, area: PlayArea, others: Cookie[]): boolean {
+    return x - radius >= area.left + RULES.edge && x + radius <= area.right - RULES.edge &&
+      y - radius >= area.top && y + radius <= area.bottom - RULES.edge &&
+      others.every(cookie => Math.hypot(cookie.x - x, cookie.y - y) >= cookie.radius + radius + RULES.gap);
+  }
 
+  private position(radius: number, area: PlayArea, others: Cookie[]): { x: number; y: number } | undefined {
+    const minX = area.left + RULES.edge + radius;
+    const maxX = area.right - RULES.edge - radius;
+    const minY = area.top + radius;
+    const maxY = area.bottom - RULES.edge - radius;
+    if (maxX < minX || maxY < minY) return;
     for (let attempt = 0; attempt < 60; attempt++) {
       const x = minX + this.random() * (maxX - minX);
       const y = minY + this.random() * (maxY - minY);
-      if (![...this.active.values()].every(cookie =>
-        Math.hypot(cookie.x - x, cookie.y - y) >= RULES.radius * 2 + RULES.gap)) continue;
-      const cookie = { id: this.nextId++, x, y, hp: RULES.hp, expiresAt: now + RULES.lifetimeMs };
-      this.active.set(cookie.id, cookie);
-      return cookie;
+      if (this.fits(x, y, radius, area, others)) return { x, y };
+    }
+    // A grid fallback finds space when a deterministic RNG repeats one blocked point.
+    for (let y = minY; y <= maxY; y += Math.max(1, radius / 2)) {
+      for (let x = minX; x <= maxX; x += Math.max(1, radius / 2)) {
+        if (this.fits(x, y, radius, area, others)) return { x, y };
+      }
     }
   }
 
-  hit(id: number): number {
+  spawn(bounds: Bounds, now: number, radius: number = RULES.radius, area = defaultArea(bounds)): Cookie | undefined {
+    if (this.active.size >= RULES.maxCookies) return;
+    const position = this.position(radius, area, [...this.active.values()]);
+    if (!position) return;
+    const cookie = { id: this.nextId++, ...position, radius, hp: RULES.hp, expiresAt: now + RULES.lifetimeMs };
+    this.active.set(cookie.id, cookie);
+    return cookie;
+  }
+
+  hit(id: number): { destroyed: boolean } | undefined {
     const cookie = this.active.get(id);
-    if (!cookie) return 0;
+    if (!cookie) return;
     cookie.hp--;
-    if (cookie.hp > 0) return 0;
+    if (cookie.hp > 0) return { destroyed: false };
     this.active.delete(id);
-    this.balance += RULES.reward;
-    this.destroyed++;
-    return RULES.reward;
+    return { destroyed: true };
   }
 
   expire(now: number): number[] {
@@ -62,11 +77,21 @@ export class SpawnManager {
     return expired;
   }
 
-  resize(bounds: Bounds, now: number): number[] {
-    const removed = [...this.active.keys()];
-    this.active.clear();
-    // A fresh layout keeps every cookie reachable after orientation changes.
-    for (let i = 0; i < removed.length; i++) this.spawn(bounds, now);
+  resize(bounds: Bounds, area = defaultArea(bounds)): number[] {
+    const cookies = [...this.active.values()];
+    const kept = cookies.filter(cookie => this.fits(cookie.x, cookie.y, cookie.radius, area, []));
+    const removed: number[] = [];
+    for (const cookie of cookies) {
+      if (kept.includes(cookie)) continue;
+      const position = this.position(cookie.radius, area, kept);
+      if (position) {
+        Object.assign(cookie, position);
+        kept.push(cookie);
+      } else {
+        this.active.delete(cookie.id);
+        removed.push(cookie.id);
+      }
+    }
     return removed;
   }
 }
