@@ -1,11 +1,12 @@
 import { Economy } from './economy';
+import { COOKIE_TYPES } from './game';
 
 export const UPGRADES = {
   value: { name: 'Cookie Value', description: 'More cookies per hit', baseCost: 14n, quadraticCost: 1n, maxLevel: null, available: true },
   size: { name: 'Cookie Size', description: 'Larger cookies', baseCost: 16n, maxLevel: 4n, available: true },
   speed: { name: 'Spawn Speed', description: 'Faster spawns', baseCost: 20n, maxLevel: 10n, available: true },
-  power: { name: 'Click Power', description: 'More damage per click · M3', baseCost: 0n, maxLevel: null, available: false },
-  luck: { name: 'Golden Luck', description: 'More Golden Cookies · M3', baseCost: 0n, maxLevel: null, available: false },
+  power: { name: 'Click Power', description: 'More damage per click', baseCost: 25n, maxLevel: 2n, available: true },
+  luck: { name: 'Golden Luck', description: 'More Golden Cookies', baseCost: 40n, chanceStepBp: 200, maxLevel: 10n, available: true },
 } as const;
 
 export type UpgradeId = keyof typeof UPGRADES;
@@ -40,4 +41,6 @@ export class UpgradeManager {
   get reward(): bigint { return 1n + this.level('value'); }
   get radius(): number { return 40 + Number(this.level('size')) * 4; }
   get spawnMs(): number { return 1500 - Number(this.level('speed')) * 100; }
+  get damage(): number { return 1 + Number(this.level('power')); }
+  get goldenChanceBp(): number { return COOKIE_TYPES.GOLDEN.weightBp + Number(this.level('luck')) * UPGRADES.luck.chanceStepBp; }
 }

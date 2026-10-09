@@ -37,4 +37,4 @@ npm run dev
 
 Run `npm run typecheck`, `npm run test`, and `npm run build` to verify the game.
 
-Collect normal cookies, then buy Cookie Value, Cookie Size, and Spawn Speed in the shop. On narrow screens, open the shop with the bottom button. Click Power and Golden Luck unlock in a later milestone. Progress resets on reload.
+Collect normal, Golden, and Hard cookies. The shop offers Cookie Value, Cookie Size, Spawn Speed, Click Power, and Golden Luck. On narrow screens, open the shop with the bottom button; cookie lifetimes pause while it is open. Progress resets on reload.
