@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { RULES, SpawnManager } from './game';
+import { COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, cookieProbabilities, cookieReward, selectCookieType } from './game';
 import { Economy } from './economy';
+import { UpgradeManager } from './upgrades';
 
 function seeded(seed = 1) {
   return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
@@ -124,6 +125,116 @@ describe('SpawnManager', () => {
     expect(removed).toEqual([second.id]);
     expect(game.active.get(first.id)).toBe(first);
     expect(first.expiresAt).toBe(10 + RULES.lifetimeMs);
+    expect(economy.balance).toBe(0n);
+    expect(economy.cookiesDestroyed).toBe(0);
+  });
+});
+
+describe('special cookies', () => {
+  it('selects each type at exact weighted boundaries through the injected RNG', () => {
+    expect(cookieProbabilities()).toEqual({ NORMAL: 8000, HARD: 1500, GOLDEN: 500 });
+    for (const [roll, expected] of [[0, 'NORMAL'], [7999, 'NORMAL'], [8000, 'HARD'],
+      [9499, 'HARD'], [9500, 'GOLDEN'], [9999, 'GOLDEN']] as const) {
+      expect(selectCookieType(roll)).toBe(expected);
+      const values = [0, 0, roll / 10_000];
+      const game = new SpawnManager(() => values.shift() ?? 0);
+      expect(game.spawn({ width: 300, height: 300 }, 0)?.type).toBe(expected);
+    }
+    expect(() => selectCookieType(10_000)).toThrow(RangeError);
+    expect(new SpawnManager(() => 0.99).spawn({ width: 300, height: 300 }, 0, 40, undefined,
+      { forcedType: 'NORMAL' })?.type).toBe('NORMAL');
+  });
+
+  it('uses Golden Luck only for subsequent spawns and keeps probabilities at 100%', () => {
+    const economy = new Economy();
+    const upgrades = new UpgradeManager();
+    economy.recordHit(10_000n);
+    const before = new SpawnManager(() => 0).spawn({ width: 300, height: 300 }, 0, 40, undefined,
+      { forcedType: 'HARD' })!;
+    for (let i = 0; i < 10; i++) expect(upgrades.buy('luck', economy)).toBe(true);
+    expect(upgrades.goldenChanceBp).toBe(2500);
+    const chances = cookieProbabilities(upgrades.goldenChanceBp);
+    expect(chances).toEqual({ NORMAL: 6000, HARD: 1500, GOLDEN: 2500 });
+    expect(Object.values(chances).reduce((sum, value) => sum + value, 0)).toBe(10_000);
+    expect(selectCookieType(8000)).toBe('HARD');
+    expect(selectCookieType(8000, upgrades.goldenChanceBp)).toBe('GOLDEN');
+    expect(before.type).toBe('HARD');
+    expect(upgrades.cost('luck')).toBeNull();
+    expect(upgrades.buy('luck', economy)).toBe(false);
+    expect(() => cookieProbabilities(8501)).toThrow(RangeError);
+  });
+
+  it('applies partial Hard damage, pays only on death, and never pays twice', () => {
+    const game = new SpawnManager(() => 0);
+    const economy = new Economy();
+    const hard = game.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: 'HARD' })!;
+    expect(hard.maxHp).toBe(3);
+    for (const hp of [2, 1]) {
+      const hit = game.hit(hard.id, 1)!;
+      expect(hit).toEqual({ destroyed: false, hp });
+      economy.recordHit(null);
+      expect(economy.balance).toBe(0n);
+    }
+    if (game.hit(hard.id, 1)?.destroyed) economy.recordHit(cookieReward(hard, 1n));
+    expect(hard.hp).toBe(0);
+    expect(game.hit(hard.id, 1)).toBeUndefined();
+    expect(economy.balance).toBe(6n);
+    expect(economy.validHits).toBe(3);
+    expect(economy.cookiesDestroyed).toBe(1);
+  });
+
+  it('needs three, two, or one hit as Click Power rises', () => {
+    for (const [powerLevel, expectedHits] of [[0, 3], [1, 2], [2, 1]] as const) {
+      const economy = new Economy();
+      const upgrades = new UpgradeManager();
+      economy.recordHit(100n);
+      for (let i = 0; i < powerLevel; i++) expect(upgrades.buy('power', economy)).toBe(true);
+      expect(upgrades.damage).toBe(powerLevel + 1);
+      const game = new SpawnManager(() => 0);
+      const hard = game.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: 'HARD' })!;
+      let hits = 0;
+      while (game.hit(hard.id, upgrades.damage)) hits++;
+      expect(hits).toBe(expectedHits);
+      expect(hard.hp).toBe(0);
+    }
+    expect(() => new SpawnManager().hit(1, 0)).toThrow(RangeError);
+  });
+
+  it('multiplies current Cookie Value using exact bigint for Golden and Hard', () => {
+    const huge = 2n ** 60n;
+    for (const [type, multiplier] of [['NORMAL', 1n], ['GOLDEN', 5n], ['HARD', 6n]] as const) {
+      const game = new SpawnManager(() => 0);
+      const economy = new Economy();
+      const cookie = game.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: type })!;
+      expect(cookie.rewardMultiplier).toBe(multiplier);
+      expect(cookieReward(cookie, huge)).toBe(huge * multiplier);
+      expect(COOKIE_TYPES[type].multiplier).toBe(multiplier);
+      if (game.hit(cookie.id, cookie.maxHp)?.destroyed) economy.recordHit(cookieReward(cookie, huge));
+      if (game.hit(cookie.id, cookie.maxHp)?.destroyed) economy.recordHit(cookieReward(cookie, huge));
+      expect(economy.balance).toBe(huge * multiplier);
+    }
+  });
+
+  it('preserves type, partial HP, radius, reward and expiry on resize', () => {
+    const game = new SpawnManager(() => 0);
+    const hard = game.spawn({ width: 900, height: 700 }, 123, 56, undefined, { forcedType: 'HARD' })!;
+    game.hit(hard.id, 1);
+    const expiresAt = hard.expiresAt;
+    expect(game.resize({ width: 320, height: 568 })).toEqual([]);
+    expect(game.active.get(hard.id)).toBe(hard);
+    expect(hard).toMatchObject({ type: 'HARD', hp: 2, maxHp: 3, radius: 56, expiresAt, rewardMultiplier: 6n });
+  });
+
+  it('expires special cookies without reward and pauses lifetimes with the modal shop', () => {
+    const game = new SpawnManager(() => 0);
+    const economy = new Economy();
+    const golden = game.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: 'GOLDEN' })!;
+    let now = advanceGameTime(0, 3000, false);
+    now = advanceGameTime(now, 10_000, true);
+    expect(now).toBe(3000);
+    expect(game.expire(now)).toEqual([]);
+    now = advanceGameTime(now, 5000, false);
+    expect(game.expire(now)).toEqual([golden.id]);
     expect(economy.balance).toBe(0n);
     expect(economy.cookiesDestroyed).toBe(0);
   });

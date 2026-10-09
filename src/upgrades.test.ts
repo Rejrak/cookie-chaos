@@ -45,15 +45,29 @@ describe('UpgradeManager', () => {
     expect(economy.balance).toBe(balance);
   });
 
-  it('keeps future upgrades locked without charging currency', () => {
+  it('unlocks M2 placeholders with useful levels and capped purchases', () => {
     const economy = new Economy();
     const upgrades = new UpgradeManager();
-    economy.recordHit(1_000n);
-    expect(upgrades.cost('power')).toBeNull();
-    expect(upgrades.cost('luck')).toBeNull();
+    expect(upgrades.damage).toBe(1);
+    expect(upgrades.goldenChanceBp).toBe(500);
     expect(upgrades.buy('power', economy)).toBe(false);
     expect(upgrades.buy('luck', economy)).toBe(false);
-    expect(economy.balance).toBe(1_000n);
+    economy.recordHit(1_000n);
+    // M3 unlocks these M2 placeholders; failed purchases at their caps still cost nothing.
+    expect(upgrades.cost('power')).toBe(25n);
+    expect(upgrades.cost('luck')).toBe(40n);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.damage).toBe(2);
+    expect(upgrades.cost('power')).toBe(38n);
+    expect(upgrades.buy('power', economy)).toBe(true);
+    expect(upgrades.damage).toBe(3);
+    expect(upgrades.cost('power')).toBeNull();
+    const balance = economy.balance;
+    expect(upgrades.buy('power', economy)).toBe(false);
+    expect(economy.balance).toBe(balance);
+    expect(upgrades.buy('luck', economy)).toBe(true);
+    expect(upgrades.goldenChanceBp).toBe(700);
+    expect(upgrades.cost('luck')).toBe(60n);
   });
 
   it('keeps value upgrade arithmetic exact at large levels', () => {

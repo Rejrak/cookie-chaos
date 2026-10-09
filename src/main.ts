@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COOKIE_SOURCE_RADIUS, RULES, SpawnManager, type Cookie, type PlayArea } from './game';
+import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, advanceGameTime, cookieReward, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import './style.css';
@@ -9,7 +9,9 @@ class GameScene extends Phaser.Scene {
   private economy = new Economy();
   private upgrades = new UpgradeManager();
   private sprites = new Map<number, Phaser.GameObjects.Image>();
+  private cracks = new Map<number, Phaser.GameObjects.Image>();
   private effects: Phaser.GameObjects.Text[] = [];
+  private gameplayNow = 0;
   private shopRows = new Map<UpgradeId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
   private shopOpen = false;
   private spawnTimer!: Phaser.Time.TimerEvent;
@@ -23,7 +25,10 @@ class GameScene extends Phaser.Scene {
 
   constructor() { super('game'); }
 
-  preload() { this.load.svg('cookie', '/cookie.svg', { width: 96, height: 96 }); }
+  preload() {
+    for (const type of Object.values(COOKIE_TYPES)) this.load.svg(type.texture, type.asset, { width: 96, height: 96 });
+    this.load.svg('hard-cracks', '/hard-cracks.svg', { width: 96, height: 96 });
+  }
 
   create() {
     this.cameras.main.setBackgroundColor('#fff2d4');
@@ -44,17 +49,16 @@ class GameScene extends Phaser.Scene {
     this.toggleButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleShop());
     this.updateHud();
     this.layout();
-    this.addCookie();
+    this.addCookie(true);
     this.startSpawnTimer();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this));
   }
 
-  update() {
-    for (const id of this.model.expire(this.time.now)) {
-      this.sprites.get(id)?.destroy();
-      this.sprites.delete(id);
-    }
+  update(_time: number, delta: number) {
+    this.gameplayNow = advanceGameTime(this.gameplayNow, delta, this.modalShop);
+    if (this.modalShop) return;
+    for (const id of this.model.expire(this.gameplayNow)) this.removeCookie(id);
   }
 
   private get sideShop() { return this.scale.width >= 560 && this.scale.height >= 320; }
@@ -65,35 +69,68 @@ class GameScene extends Phaser.Scene {
       bottom: this.sideShop ? this.scale.height : this.scale.height - 72 };
   }
 
-  private addCookie() {
+  private addCookie(first = false) {
     if (this.modalShop) return;
-    const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.time.now, this.upgrades.radius, this.playArea);
+    const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.gameplayNow,
+      this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp, forcedType: first ? 'NORMAL' : undefined });
     if (cookie) this.drawCookie(cookie);
   }
 
   private drawCookie(cookie: Cookie) {
-    const sprite = this.add.image(cookie.x, cookie.y, 'cookie').setAlpha(0).setScale(cookie.radius / (COOKIE_SOURCE_RADIUS * 2));
+    const sprite = this.add.image(cookie.x, cookie.y, COOKIE_TYPES[cookie.type].texture).setAlpha(0).setScale(cookie.radius / (COOKIE_SOURCE_RADIUS * 2));
+    if (cookie.type === 'HARD') {
+      const cracks = this.add.image(cookie.x, cookie.y, 'hard-cracks').setScale(cookie.radius / COOKIE_SOURCE_RADIUS).setDepth(1);
+      this.cracks.set(cookie.id, cracks);
+      this.updateCracks(cookie);
+    }
     sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     sprite.on(Phaser.Input.Events.POINTER_DOWN, () => {
-      const hit = this.model.hit(cookie.id);
+      const hit = this.model.hit(cookie.id, this.upgrades.damage);
       if (!hit) return;
-      const reward = hit.destroyed ? this.upgrades.reward : null;
+      const reward = hit.destroyed ? cookieReward(cookie, this.upgrades.reward) : null;
       this.economy.recordHit(reward);
-      if (!hit.destroyed) return;
+      this.updateHud();
+      if (!hit.destroyed) {
+        this.updateCracks(cookie);
+        this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 0.9, yoyo: true, duration: 70 });
+        this.floatText(cookie, `${hit.hp}/${cookie.maxHp} HP`, '#713b20');
+        return;
+      }
       sprite.disableInteractive();
       this.sprites.delete(cookie.id);
-      this.updateHud();
+      this.cracks.get(cookie.id)?.destroy();
+      this.cracks.delete(cookie.id);
       this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS * 1.15, alpha: 0, duration: 170, onComplete: () => sprite.destroy() });
-      if (this.effects.length >= 10) this.effects.shift()?.destroy();
-      const effect = this.add.text(cookie.x, cookie.y - 24, `+${formatAmount(reward!)}`, {
-        fontFamily: 'system-ui, sans-serif', fontSize: '26px', fontStyle: 'bold', color: '#713b20',
-      }).setOrigin(0.5).setDepth(3);
-      this.effects.push(effect);
-      this.tweens.add({ targets: effect, y: effect.y - 38, alpha: 0, duration: 600,
-        onComplete: () => { effect.destroy(); this.effects = this.effects.filter(item => item !== effect); } });
+      this.floatText(cookie, `+${formatAmount(reward!)}`, cookie.type === 'GOLDEN' ? '#bd780a' : '#713b20');
+      if (cookie.type === 'GOLDEN') {
+        const halo = this.add.circle(cookie.x, cookie.y, cookie.radius + 5).setStrokeStyle(3, 0xffd45f).setDepth(1);
+        this.tweens.add({ targets: halo, scale: 1.35, alpha: 0, duration: 260, onComplete: () => halo.destroy() });
+      }
     });
     this.sprites.set(cookie.id, sprite);
     this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1, duration: 180 });
+  }
+
+  private floatText(cookie: Cookie, value: string, color: string) {
+    if (this.effects.length >= 10) this.effects.shift()?.destroy();
+    const effect = this.add.text(cookie.x, cookie.y - 24, value, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '26px', fontStyle: 'bold', color,
+    }).setOrigin(0.5).setDepth(3);
+    this.effects.push(effect);
+    this.tweens.add({ targets: effect, y: effect.y - 38, alpha: 0, duration: 600,
+      onComplete: () => { effect.destroy(); this.effects = this.effects.filter(item => item !== effect); } });
+  }
+
+  private updateCracks(cookie: Cookie) {
+    this.cracks.get(cookie.id)?.setAlpha(cookie.hp === 1 ? 1 : 0.5)
+      .setVisible(!this.modalShop && cookie.hp < cookie.maxHp);
+  }
+
+  private removeCookie(id: number) {
+    this.sprites.get(id)?.destroy();
+    this.sprites.delete(id);
+    this.cracks.get(id)?.destroy();
+    this.cracks.delete(id);
   }
 
   private startSpawnTimer() {
@@ -120,7 +157,8 @@ class GameScene extends Phaser.Scene {
       const cost = this.upgrades.cost(id);
       const effect = id === 'value' ? `+${formatAmount(this.upgrades.reward)} / cookie` :
         id === 'size' ? `Radius ${this.upgrades.radius}px` :
-        id === 'speed' ? `Every ${this.upgrades.spawnMs}ms` : upgrade.description;
+        id === 'speed' ? `Every ${this.upgrades.spawnMs}ms` :
+        id === 'power' ? `Damage ${this.upgrades.damage} / click` : `Golden chance ${this.upgrades.goldenChanceBp / 100}%`;
       const status = !upgrade.available ? 'Price —  ·  Locked: M3' : cost === null ? 'Price —  ·  MAX' :
         `Price ${formatAmount(cost)}  ·  ${this.economy.balance >= cost ? 'BUY' : 'Need more'}`;
       const row = this.shopRows.get(id)!;
@@ -133,12 +171,18 @@ class GameScene extends Phaser.Scene {
     this.shopOpen = !this.shopOpen;
     this.layout();
     this.spawnTimer.paused = this.modalShop;
-    for (const sprite of this.sprites.values()) {
+    this.syncCookieVisibility();
+    if (!this.modalShop && !this.model.active.size) this.addCookie();
+  }
+
+  private syncCookieVisibility() {
+    for (const [id, sprite] of this.sprites) {
       sprite.setVisible(!this.modalShop);
       if (this.modalShop) sprite.disableInteractive();
       else sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
+      const cookie = this.model.active.get(id);
+      if (cookie) this.updateCracks(cookie);
     }
-    if (!this.modalShop && !this.model.active.size) this.addCookie();
   }
 
   private layout() {
@@ -170,17 +214,13 @@ class GameScene extends Phaser.Scene {
   private onResize() {
     if (this.sideShop) this.shopOpen = false;
     this.layout();
-    for (const id of this.model.resize({ width: this.scale.width, height: this.scale.height }, this.playArea)) {
-      this.sprites.get(id)?.destroy();
-      this.sprites.delete(id);
+    for (const id of this.model.resize({ width: this.scale.width, height: this.scale.height }, this.playArea)) this.removeCookie(id);
+    for (const cookie of this.model.active.values()) {
+      this.sprites.get(cookie.id)?.setPosition(cookie.x, cookie.y);
+      this.cracks.get(cookie.id)?.setPosition(cookie.x, cookie.y);
     }
-    for (const cookie of this.model.active.values()) this.sprites.get(cookie.id)?.setPosition(cookie.x, cookie.y);
     this.spawnTimer.paused = this.modalShop;
-    for (const sprite of this.sprites.values()) {
-      sprite.setVisible(!this.modalShop);
-      if (this.modalShop) sprite.disableInteractive();
-      else sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
-    }
+    this.syncCookieVisibility();
     if (!this.modalShop && !this.model.active.size) this.addCookie();
   }
 }
