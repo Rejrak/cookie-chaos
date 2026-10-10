@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { RULES, SpawnManager } from './game';
-import { calculateGameLayout } from './ui-layout';
+import { calculateGameLayout, HUD_TOUGH_ROW } from './ui-layout';
 
 const viewports = [[320, 320], [360, 640], [390, 844], [568, 320], [1280, 720]] as const;
 
 describe('Cookie Kingdom layout', () => {
+  it.each([[360, 640], [390, 844], [1280, 720]])('keeps the Tough row below SP and inside HUD at %i×%i', (width, height) => {
+    const frame = calculateGameLayout(width, height);
+    const panelBottom = frame.hudHeight - 4;
+    expect(HUD_TOUGH_ROW.textY).toBeGreaterThanOrEqual(123 + 8); // SP bar ends at y=123.
+    expect(HUD_TOUGH_ROW.textY + 18).toBeLessThanOrEqual(panelBottom - 6);
+    expect(HUD_TOUGH_ROW.iconY - HUD_TOUGH_ROW.iconSize / 2).toBeGreaterThanOrEqual(123 + 8);
+    expect(HUD_TOUGH_ROW.iconY + HUD_TOUGH_ROW.iconSize / 2).toBeLessThanOrEqual(panelBottom - 6);
+    expect(frame.playArea.top).toBe(frame.hudHeight);
+  });
+
   it.each(viewports)('keeps the first interactive cookie clear of chrome at %i×%i', (width, height) => {
     const frame = calculateGameLayout(width, height);
     const cookie = new SpawnManager(() => 0.5).spawn({ width, height }, 0, RULES.radius, frame.playArea,

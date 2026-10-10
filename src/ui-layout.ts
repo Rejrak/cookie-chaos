@@ -11,6 +11,8 @@ export type GameLayout = {
   shop: { x: number; y: number; width: number; height: number };
 };
 
+export const HUD_TOUGH_ROW = { textY: 132, iconY: 140, iconSize: 18 } as const;
+
 /** The same bounds position the visible chrome and constrain cookie spawning. */
 export function calculateGameLayout(width: number, height: number, bossFight = false): GameLayout {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -18,7 +20,7 @@ export function calculateGameLayout(width: number, height: number, bossFight = f
   }
   const sideShop = width >= 960 && height >= 480 && !bossFight;
   const compact = height < 420;
-  const hudHeight = compact ? 94 : width < 480 ? 140 : 132;
+  const hudHeight = compact ? 94 : 160;
   const dockHeight = compact ? 60 : 76;
   const bossPanelHeight = bossFight ? 48 : 0;
   const fieldRight = sideShop ? width - 336 : width;

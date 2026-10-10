@@ -10,7 +10,7 @@ import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrade
 import { hardHpForStage, kingdomName } from './cycle';
 import { TimeWarp, timeWarpCost } from './time-warp';
 import { ABILITIES, ABILITY_IDS, AbilityManager, abilityCost, autoTarget, freeAbilityForBossStage, type AbilityId } from './abilities';
-import { calculateGameLayout } from './ui-layout';
+import { calculateGameLayout, HUD_TOUGH_ROW } from './ui-layout';
 import './style.css';
 
 type ShopRow = { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text;
@@ -586,11 +586,12 @@ class GameScene extends Phaser.Scene {
       `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP`);
     this.toughText.setText(bossFight ? '' : this.stage.toughRequired ?
       missingTough > 0 && this.stage.progress === this.stage.target ?
-        `Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
+        layout.compact ? `Break ${missingTough} Tough` :
+          `Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
         `Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}` :
       this.stage.isBossCheckpoint ? 'Boss ahead' : '');
     this.icons.get('tough')?.setVisible(!!this.toughText.text && !layout.compact && !bossFight)
-      .setPosition(21, 132).setDisplaySize(20, 20);
+      .setPosition(21, HUD_TOUGH_ROW.iconY).setDisplaySize(HUD_TOUGH_ROW.iconSize, HUD_TOUGH_ROW.iconSize);
     this.progressFill.setSize(this.progressWidth * (bossFight ? this.boss!.hp / this.boss!.config.bodyHp : this.stage.progressPercent / 100), 10)
       .setFillStyle(bossFight ? 0xa93438 : 0x276b93);
     this.bossStatusText.setText(bossFight ? this.boss!.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2× DAMAGE' :
@@ -750,7 +751,7 @@ class GameScene extends Phaser.Scene {
     this.progressFill.setPosition(12, compact ? 78 : 114).setSize(this.progressWidth *
       (bossFight && this.boss ? this.boss.hp / this.boss.config.bodyHp : this.stage.progressPercent / 100), 9)
       .setFillStyle(bossFight ? 0xa93438 : 0x276b93);
-    this.toughText.setPosition(compact ? fieldRight - 12 : 34, compact ? 55 : 124)
+    this.toughText.setPosition(compact ? fieldRight - 12 : 34, compact ? 55 : HUD_TOUGH_ROW.textY)
       .setOrigin(compact ? 1 : 0, 0).setFontSize(compact ? 12 : 13);
     this.statsText.setVisible(false);
     const icon = (name: string, x: number, y: number, size: number, show = true) => {
@@ -761,7 +762,7 @@ class GameScene extends Phaser.Scene {
     icon('shield', compact ? 124 : 131, compact ? 40 : 50, 23);
     icon('currency', 22, 78, 22, !compact);
     icon('stage-points', 22, 102, 20, !compact);
-    icon('tough', 21, 131, 20, !!this.toughText.text && !compact && !bossFight);
+    icon('tough', 21, HUD_TOUGH_ROW.iconY, HUD_TOUGH_ROW.iconSize, !!this.toughText.text && !compact && !bossFight);
     this.updateBombNotice();
 
     this.bossPanel.setPosition(0, playArea.bottom).setSize(fieldRight, frame.bossPanelHeight)
