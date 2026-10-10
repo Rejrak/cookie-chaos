@@ -1,0 +1,38 @@
+* { box-sizing: border-box; }
+html, body, #p0 { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+body { font-family: system-ui, sans-serif; color: #39251d; background: #fff2d4; touch-action: none; }
+#p0 { display: flex; flex-direction: column; }
+header, .toolbar, .hud, footer { flex: none; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #5b3528; color: #fff4d6; min-height: 37px; }
+header small { font-size: 11px; color: #ffdb83; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; padding: 5px 8px; background: #edcf9b; }
+label { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+select, input, button { font: inherit; color: inherit; border: 2px solid #704b37; border-radius: 8px; background: #fff8e9; min-height: 36px; }
+select { max-width: 98px; } input { width: 79px; padding-left: 4px; }
+button { font-weight: 800; padding: 5px 10px; cursor: pointer; }
+button:disabled { opacity: .48; cursor: default; }
+.primary { background: #edaf44; }
+.hud { display: flex; justify-content: space-between; gap: 5px; padding: 5px 8px; background: #694132; color: #fff7e8; font-weight: 800; font-size: 13px; }
+#hp { color: #ffb4ad; } #sp { color: #bfe5ff; } #clock { color: #ffe58a; }
+#arena { flex: 1; min-height: 150px; overflow: hidden; touch-action: none; }
+#arena canvas { display: block; }
+footer { display: flex; gap: 5px; padding: 6px; align-items: center; justify-content: space-between; background: #edcf9b; }
+.shop { display: flex; gap: 4px; }
+.hint { flex: none; font-size: 11px; margin: 0; padding: 3px 7px; text-align: center; background: #edcf9b; }
+dialog { max-width: min(96vw, 560px); max-height: 90vh; border: 3px solid #704b37; border-radius: 12px; background: #fff8e9; }
+dialog pre { white-space: pre-wrap; overflow: auto; max-height: 60vh; font-size: 12px; }
+@media (max-width: 620px) {
+  header { font-size: 13px; padding: 3px 8px; min-height: 27px; }
+  .toolbar { gap: 3px 7px; padding: 3px 6px; }
+  label { font-size: 10px; }
+  select, input { min-height: 26px; font-size: 11px; }
+  select { min-width: 48px; }
+  .hud { flex-wrap: wrap; font-size: 11px; padding: 2px 5px; }
+  footer { flex-wrap: wrap; justify-content: center; padding: 3px; }
+  button { min-height: 31px; font-size: 11px; padding: 3px 5px; }
+  .hint { display: none; }
+}
+@media (max-height: 390px) {
+  footer { flex-wrap: nowrap; }
+  button { font-size: 10px; }
+}
