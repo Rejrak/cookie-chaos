@@ -9,7 +9,7 @@ import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import { hardHpForStage, kingdomName } from './cycle';
 import { TimeWarp, timeWarpCost } from './time-warp';
-import { AbilityManager, autoTarget, freeAbilityForBossStage } from './abilities';
+import { ABILITIES, ABILITY_IDS, AbilityManager, abilityCost, autoTarget, freeAbilityForBossStage, type AbilityId } from './abilities';
 import './style.css';
 
 class GameScene extends Phaser.Scene {
@@ -33,16 +33,30 @@ class GameScene extends Phaser.Scene {
   private bossProtectionFill!: Phaser.GameObjects.Rectangle;
   private lastBossBonus = 0n;
   private lastBossName = '';
+  private lastFreeAbility: AbilityId | null = null;
   private sprites = new Map<number, Phaser.GameObjects.Image>();
   private cracks = new Map<number, Phaser.GameObjects.Image>();
   private effects: Phaser.GameObjects.Text[] = [];
   private gameplayNow = 0;
+  private focused = true;
+  private resumeFrame = false;
+  private onBlur = () => { this.focused = false; this.spawnTimer.paused = true; };
+  private onFocus = () => {
+    this.focused = true;
+    this.resumeFrame = true;
+    this.spawnTimer.paused = !this.focused || document.hidden || this.modalShop || this.stage.status !== 'RUNNING';
+  };
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private shownSeconds = -1;
   private progressWidth = 0;
   private shopRows = new Map<UpgradeId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
   private shopOpen = false;
-  private shopTab: 'OFFENSE' | 'DEFENSE' = 'OFFENSE';
+  private shopTab: 'OFFENSE' | 'DEFENSE' | 'SPECIAL' = 'OFFENSE';
+  private abilityPanelOpen = false;
+  private abilityButtons = new Map<AbilityId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
+  private abilityBuyRows = new Map<AbilityId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
+  private abilityToggle!: Phaser.GameObjects.Rectangle;
+  private abilityToggleText!: Phaser.GameObjects.Text;
   private spawnTimer!: Phaser.Time.TimerEvent;
   private titleText!: Phaser.GameObjects.Text;
   private balanceText!: Phaser.GameObjects.Text;
@@ -110,7 +124,7 @@ class GameScene extends Phaser.Scene {
     });
     this.shopBackground = this.add.rectangle(0, 0, 1, 1, 0xffe5b6).setOrigin(0).setDepth(4).setInteractive();
     this.shopTitle = this.add.text(0, 0, 'UPGRADES', { ...heading, fontSize: '20px' }).setDepth(5);
-    this.shopTabs = (['OFFENSE', 'DEFENSE'] as const).map(tab => {
+    this.shopTabs = (['OFFENSE', 'DEFENSE', 'SPECIAL'] as const).map(tab => {
       const button = this.add.rectangle(0, 0, 1, 26, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
       const label = this.add.text(0, 0, tab, { fontFamily: 'system-ui, sans-serif',
         fontSize: '13px', fontStyle: 'bold', color: '#57301d' }).setOrigin(0.5, 0).setDepth(6);
@@ -132,6 +146,33 @@ class GameScene extends Phaser.Scene {
       this.warpBuyButton.setStrokeStyle(3, 0xffffff);
       this.time.delayedCall(250, () => this.warpBuyButton.setStrokeStyle(0));
     });
+    for (const id of ABILITY_IDS) {
+      const button = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
+      const label = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#57301d' }).setDepth(6);
+      button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+        if (this.stage.status === 'BOSS_FIGHT' || !this.abilities.buy(id, this.economy, this.stage.stageNumber)) return;
+        this.updateHud();
+        button.setStrokeStyle(3, 0xffffff);
+        this.time.delayedCall(250, () => button.setStrokeStyle(0));
+      });
+      this.abilityBuyRows.set(id, { button, label });
+      const action = this.add.rectangle(0, 0, 1, 1, 0x3d877c).setDepth(4).setInteractive({ useHandCursor: true });
+      const actionLabel = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', fontStyle: 'bold', color: '#ffffff' })
+        .setOrigin(0.5).setDepth(5);
+      action.on(Phaser.Input.Events.POINTER_DOWN, () => {
+        if (this.modalShop || !this.abilities.activate(id, this.stage.status === 'RUNNING')) return;
+        this.floatText({ x: action.x, y: action.y }, id === 'RAIN' ? 'COOKIE RAIN' : 'AUTO-CLICKER', '#3d877c');
+        this.updateHud();
+      });
+      this.abilityButtons.set(id, { button: action, label: actionLabel });
+    }
+    this.abilityToggle = this.add.rectangle(0, 0, 1, 1, 0x3d877c).setDepth(11).setInteractive({ useHandCursor: true });
+    this.abilityToggleText = this.add.text(0, 0, 'Abilities', { fontFamily: 'system-ui, sans-serif',
+      fontSize: '14px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(12);
+    this.abilityToggle.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.abilityPanelOpen = !this.abilityPanelOpen;
+      this.layout();
+    });
     this.toggleButton = this.add.rectangle(0, 0, 180, 52, 0xb76b36).setDepth(11).setInteractive({ useHandCursor: true });
     this.toggleText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '17px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(12);
     this.toggleButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleShop());
@@ -145,8 +186,12 @@ class GameScene extends Phaser.Scene {
     this.addCookie(true);
     this.startSpawnTimer();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
+    window.addEventListener('blur', this.onBlur);
+    window.addEventListener('focus', this.onFocus);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this);
+      window.removeEventListener('blur', this.onBlur);
+      window.removeEventListener('focus', this.onFocus);
       this.spawnTimer.remove(false);
       this.clearCookies();
       this.clearEffects();
@@ -156,7 +201,8 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (document.hidden || this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
+    if (!this.focused || document.hidden || this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
+    if (this.resumeFrame) { this.resumeFrame = false; return; }
     let remaining = delta;
     do {
       const step = Math.min(remaining, 100, this.stage.remainingMs);
@@ -186,6 +232,7 @@ class GameScene extends Phaser.Scene {
           const target = autoTarget(this.model.active.values(), this.warp.threatNow);
           if (target) this.hitCookie(target.id);
         }
+        this.updateAbilityButtons();
       }
       remaining -= step;
     } while (remaining > 0);
@@ -196,11 +243,11 @@ class GameScene extends Phaser.Scene {
 
   private get playArea(): PlayArea {
     return { left: 0, top: RULES.hudHeight, right: this.sideShop ? this.scale.width - 312 : this.scale.width,
-      bottom: this.sideShop ? this.scale.height : this.scale.height - 72 };
+      bottom: this.scale.height - 72 };
   }
 
   private addCookie(first = false, bonus = false) {
-    if (document.hidden || this.modalShop || this.stage.status !== 'RUNNING') return;
+    if (!this.focused || document.hidden || this.modalShop || this.stage.status !== 'RUNNING') return;
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.warp.threatNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
         stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
@@ -359,7 +406,7 @@ class GameScene extends Phaser.Scene {
     this.renderAttack();
     if (hit.defeated) {
       const free = freeAbilityForBossStage(this.stage.stageNumber);
-      if (free) this.abilities.grant(free, `boss:${this.stage.stageNumber}`);
+      if (free && this.abilities.grant(free, `boss:${this.stage.stageNumber}`)) this.lastFreeAbility = free;
       this.lastBossName = this.boss.config.name;
       this.lastBossBonus = hit.reward!;
       if (!this.reducedMotion) this.cameras.main.flash(220, 255, 213, 108);
@@ -397,7 +444,7 @@ class GameScene extends Phaser.Scene {
   private startSpawnTimer() {
     this.spawnTimer?.remove(false);
     this.spawnTimer = this.time.addEvent({ delay: this.upgrades.spawnMs, loop: true, callback: () => this.addCookie() });
-    this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
+    this.spawnTimer.paused = !this.focused || document.hidden || this.modalShop || this.stage.status !== 'RUNNING';
   }
 
   private finishStage() {
@@ -432,6 +479,7 @@ class GameScene extends Phaser.Scene {
     this.model.resetFairness();
     this.lastBossBonus = 0n;
     this.lastBossName = '';
+    this.lastFreeAbility = null;
     this.shownSeconds = -1;
     this.updateHud();
     this.layout();
@@ -505,6 +553,33 @@ class GameScene extends Phaser.Scene {
       `Time Warp · ${this.warp.charges}/3 · ${formatAmount(warpCost)} Cookies\n6s slower threats · ${this.warp.charges >= 3 ? 'FULL' : this.economy.balance >= warpCost ? 'BUY' : 'Need more'}` :
       `Time Warp · ${this.warp.charges}/3 charges\n6s slower threats; stage timer normal\nPrice ${formatAmount(warpCost)} · ${this.warp.charges >= 3 ? 'FULL' : this.economy.balance >= warpCost ? 'BUY' : 'Need more'}`);
     this.warpBuyButton.setFillStyle(this.warp.charges < 3 && this.economy.balance >= warpCost ? 0xe9ad63 : 0xe4d4b9);
+    for (const id of ABILITY_IDS) {
+      const cost = abilityCost(id, this.stage.stageNumber);
+      const charges = this.abilities.charges(id);
+      const row = this.abilityBuyRows.get(id)!;
+      row.label.setText(this.scale.height < 420 ?
+        `${ABILITIES[id].name} · ${charges}/3 · ${formatAmount(cost)} Cookies\n${ABILITIES[id].durationMs / 1000}s · ${charges === 3 ? 'FULL' : this.economy.balance >= cost ? 'BUY' : 'Need more'}` :
+        `${ABILITIES[id].name} · ${charges}/3 charges\n${ABILITIES[id].durationMs / 1000}s of ${id === 'RAIN' ? 'extra cookie spawns' : 'safe automatic hits'}\nPrice ${formatAmount(cost)} · ${charges === 3 ? 'FULL' : this.economy.balance >= cost ? 'BUY' : 'Need more'}`);
+      row.button.setFillStyle(charges < 3 && this.economy.balance >= cost ? 0xe9ad63 : 0xe4d4b9);
+    }
+    this.updateAbilityButtons();
+  }
+
+  private updateAbilityButtons() {
+    const visible = this.stage.status === 'RUNNING' && !this.modalShop && (this.sideShop || this.abilityPanelOpen);
+    for (const id of ABILITY_IDS) {
+      const row = this.abilityButtons.get(id);
+      if (!row) continue;
+      const remaining = this.abilities.remainingMs(id);
+      const cooldown = this.abilities.cooldownMs(id);
+      row.label.setText(remaining ? `${id === 'RAIN' ? 'RAIN' : 'AUTO'} ${Math.ceil(remaining / 1000)}s` :
+        cooldown ? `${id === 'RAIN' ? 'RAIN' : 'AUTO'} CD ${Math.ceil(cooldown / 1000)}s` :
+          `${id === 'RAIN' ? 'RAIN' : 'AUTO'} ×${this.abilities.charges(id)}`);
+      row.button.setVisible(visible).setFillStyle(remaining ? 0x627cad : this.abilities.charges(id) ? 0x3d877c : 0x8d826f);
+      row.label.setVisible(visible);
+      if (visible && !remaining && !cooldown && this.abilities.charges(id)) row.button.setInteractive({ useHandCursor: true });
+      else row.button.disableInteractive();
+    }
   }
 
   private updateWarpButton() {
@@ -529,7 +604,7 @@ class GameScene extends Phaser.Scene {
     if (this.stage.status === 'BOSS_FIGHT') return;
     this.shopOpen = !this.shopOpen;
     this.layout();
-    this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
+    this.spawnTimer.paused = !this.focused || document.hidden || this.modalShop || this.stage.status !== 'RUNNING';
     this.syncCookieVisibility();
     if (!this.modalShop && this.stage.status === 'RUNNING' && !this.model.active.size) this.addCookie();
   }
@@ -574,25 +649,44 @@ class GameScene extends Phaser.Scene {
       .setSize(side ? 312 : compact ? width : width - 16, side || compact ? height : height - RULES.hudHeight).setVisible(visible);
     this.shopTitle.setPosition(side ? width - 296 : compact ? 16 : 20, side ? 20 : compact ? 12 : RULES.hudHeight + 10)
       .setText(compact && this.shopOpen ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES').setVisible(visible);
-    this.toggleButton.setVisible(!side && !bossFight).setPosition(this.shopOpen ? width - (compact ? 58 : 78) : width / 2, this.shopOpen ? (compact ? 24 : RULES.hudHeight + 20) : height - 36)
-      .setSize(this.shopOpen ? (compact ? 100 : 116) : 180, this.shopOpen ? 36 : 52);
+    const running = this.stage.status === 'RUNNING';
+    this.toggleButton.setVisible(!side && !bossFight).setPosition(this.shopOpen ? width - (compact ? 58 : 78) :
+      running ? width * 0.75 : width / 2,
+      this.shopOpen ? (compact ? 24 : RULES.hudHeight + 20) : running && this.abilityPanelOpen ? height - 54 : height - 36)
+      .setSize(this.shopOpen ? (compact ? 100 : 116) : running ? Math.min(148, width / 2 - 12) : 180,
+        this.shopOpen ? 36 : running && this.abilityPanelOpen ? 28 : 52);
     this.toggleText.setVisible(!side && !bossFight).setPosition(this.toggleButton.x, this.toggleButton.y)
       .setText(this.shopOpen ? 'Close' : 'Shop / Upgrades');
+    const abilityToggleVisible = !side && running && !this.shopOpen;
+    this.abilityToggle.setVisible(abilityToggleVisible).setPosition(width * 0.25,
+      this.abilityPanelOpen ? height - 54 : height - 36)
+      .setSize(Math.min(148, width / 2 - 12), this.abilityPanelOpen ? 28 : 52);
+    this.abilityToggleText.setVisible(abilityToggleVisible).setPosition(this.abilityToggle.x, this.abilityToggle.y)
+      .setText(this.abilityPanelOpen ? 'Close abilities' : 'Abilities');
+    if (abilityToggleVisible) this.abilityToggle.setInteractive({ useHandCursor: true });
+    else this.abilityToggle.disableInteractive();
+    ABILITY_IDS.forEach((id, index) => {
+      const row = this.abilityButtons.get(id)!;
+      const playWidth = side ? width - 312 : width;
+      row.button.setPosition(playWidth * (index ? 0.75 : 0.25), side ? height - 36 : height - 18)
+        .setSize(Math.min(148, playWidth / 2 - 12), side ? 52 : 30);
+      row.label.setPosition(row.button.x, row.button.y);
+    });
     const shopX = side ? width - 300 : compact ? 8 : 16;
     const shopWidth = side ? 288 : compact ? width - 16 : width - 32;
     const tabY = side ? 52 : compact ? 50 : RULES.hudHeight + 42;
     this.shopTabs.forEach((tab, index) => {
-      tab.button.setPosition(shopX + index * shopWidth / 2, tabY)
-        .setSize(shopWidth / 2 - 2, 26).setVisible(visible)
-        .setFillStyle(this.shopTab === (index === 0 ? 'OFFENSE' : 'DEFENSE') ? 0xe9ad63 : 0xe4d4b9);
+      tab.button.setPosition(shopX + index * shopWidth / 3, tabY)
+        .setSize(shopWidth / 3 - 2, 26).setVisible(visible)
+        .setFillStyle(this.shopTab === (index === 0 ? 'OFFENSE' : index === 1 ? 'DEFENSE' : 'SPECIAL') ? 0xe9ad63 : 0xe4d4b9);
       tab.label.setPosition(tab.button.x + tab.button.width / 2, tabY + 5).setVisible(visible);
       if (visible) tab.button.setInteractive({ useHandCursor: true });
       else tab.button.disableInteractive();
     });
     const ids: UpgradeId[] = this.shopTab === 'OFFENSE' ? UPGRADE_IDS.filter(id => id !== 'health' && id !== 'shield') :
-      UPGRADE_IDS.filter(id => id === 'health' || id === 'shield');
+      this.shopTab === 'DEFENSE' ? UPGRADE_IDS.filter(id => id === 'health' || id === 'shield') : [];
     const rowTop = tabY + 34;
-    const rows = this.shopTab === 'OFFENSE' ? ids.length : ids.length + 1;
+    const rows = this.shopTab === 'OFFENSE' ? ids.length : this.shopTab === 'DEFENSE' ? ids.length + 1 : ABILITY_IDS.length;
     const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * (rows - 1) - 8) / rows));
     UPGRADE_IDS.forEach(id => {
       const row = this.shopRows.get(id)!;
@@ -611,11 +705,20 @@ class GameScene extends Phaser.Scene {
       .setFontSize(rowHeight < 54 ? 12 : 14).setVisible(warpVisible);
     if (warpVisible) this.warpBuyButton.setInteractive({ useHandCursor: true });
     else this.warpBuyButton.disableInteractive();
+    ABILITY_IDS.forEach((id, index) => {
+      const row = this.abilityBuyRows.get(id)!;
+      const rowVisible = visible && this.shopTab === 'SPECIAL';
+      row.button.setPosition(shopX, rowTop + index * (rowHeight + 4)).setSize(shopWidth, rowHeight).setVisible(rowVisible);
+      row.label.setPosition(shopX + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(rowVisible);
+      if (rowVisible) row.button.setInteractive({ useHandCursor: true });
+      else row.button.disableInteractive();
+    });
     if (visible) this.shopBackground.setInteractive();
     else this.shopBackground.disableInteractive();
     if (!side && !bossFight) this.toggleButton.setInteractive({ useHandCursor: true });
     else this.toggleButton.disableInteractive();
     this.updateWarpButton();
+    this.updateAbilityButtons();
     this.layoutBoss();
     this.layoutTerminal();
   }
@@ -633,7 +736,7 @@ class GameScene extends Phaser.Scene {
     this.terminalBackground.setSize(width, height).setVisible(visible);
     this.terminalText.setPosition(width / 2, height / 2 - 35)
       .setFontSize(this.scale.height < 420 ? 14 : 19).setLineSpacing(this.scale.height < 420 ? 3 : 8)
-      .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)
+      .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${this.lastFreeAbility ? `\nFree ${ABILITIES[this.lastFreeAbility].name} charge` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)
       .setVisible(visible);
     this.terminalButton.setPosition(width / 2, height / 2 + 66).setSize(Math.min(190, width - 36), 48).setVisible(visible);
     this.terminalButtonText.setPosition(width / 2, height / 2 + 66)
@@ -651,7 +754,7 @@ class GameScene extends Phaser.Scene {
       this.sprites.get(cookie.id)?.setPosition(cookie.x, cookie.y);
       this.cracks.get(cookie.id)?.setPosition(cookie.x, cookie.y);
     }
-    this.spawnTimer.paused = this.modalShop || this.stage.status !== 'RUNNING';
+    this.spawnTimer.paused = !this.focused || document.hidden || this.modalShop || this.stage.status !== 'RUNNING';
     this.syncCookieVisibility();
     if (!this.modalShop && this.stage.status === 'RUNNING' && !this.model.active.size) this.addCookie();
   }

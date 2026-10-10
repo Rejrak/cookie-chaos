@@ -8,7 +8,7 @@ export const ABILITIES = {
 } as const;
 export type AbilityId = keyof typeof ABILITIES;
 export const ABILITY_IDS = Object.keys(ABILITIES) as AbilityId[];
-export const ABILITY_RULES = { maxCharges: 3, cooldownMs: 1000, autoHitMs: 800, rainIntervalFactor: 2 } as const;
+export const ABILITY_RULES = { maxCharges: 3, cooldownMs: 1000, autoHitMs: 600, rainIntervalFactor: 2 } as const;
 
 export function abilityCost(id: AbilityId, stageNumber: number): bigint {
   if (!Number.isSafeInteger(stageNumber) || stageNumber < 1) throw new RangeError('Invalid stage number');
@@ -31,8 +31,7 @@ export class AbilityManager {
   private cooldown = { RAIN: 0, AUTO: 0 };
   private elapsed = { RAIN: 0, AUTO: 0 };
   private granted = new Set<string>();
-  private pending = { RAIN: 0, AUTO: 0 };
-  readonly stats = { bought: 0, granted: 0, activated: 0, rainOpportunities: 0, autoHits: 0 };
+  readonly stats = { bought: 0, granted: 0, activated: 0, rainOpportunities: 0, autoOpportunities: 0 };
 
   charges(id: AbilityId) { return this.owned[id]; }
   remainingMs(id: AbilityId) { return this.remaining[id]; }
@@ -50,8 +49,8 @@ export class AbilityManager {
   grant(id: AbilityId, eventKey: string): boolean {
     if (!eventKey || this.granted.has(eventKey)) return false;
     this.granted.add(eventKey);
-    if (this.owned[id] < ABILITY_RULES.maxCharges) this.owned[id]++;
-    else this.pending[id]++;
+    if (this.owned[id] >= ABILITY_RULES.maxCharges) return false;
+    this.owned[id]++;
     this.stats.granted++;
     return true;
   }
@@ -59,7 +58,6 @@ export class AbilityManager {
   activate(id: AbilityId, running: boolean): boolean {
     if (!running || this.owned[id] === 0 || this.active(id) || this.cooldown[id] > 0) return false;
     this.owned[id]--;
-    if (this.pending[id]) { this.pending[id]--; this.owned[id]++; }
     this.remaining[id] = ABILITIES[id].durationMs;
     this.elapsed[id] = 0;
     this.stats.activated++;
@@ -90,8 +88,11 @@ export class AbilityManager {
       const count = Math.floor(this.elapsed[id] / interval);
       this.elapsed[id] -= count * interval;
       if (id === 'RAIN') { pulses.rain = count; this.stats.rainOpportunities += count; }
-      else { pulses.auto = count; this.stats.autoHits += count; }
-      if (!this.remaining[id]) { this.elapsed[id] = 0; this.cooldown[id] = ABILITY_RULES.cooldownMs; }
+      else { pulses.auto = count; this.stats.autoOpportunities += count; }
+      if (!this.remaining[id]) {
+        this.elapsed[id] = 0;
+        this.cooldown[id] = Math.max(0, ABILITY_RULES.cooldownMs - (deltaMs - activeTime));
+      }
     }
     return pulses;
   }

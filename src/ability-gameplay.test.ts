@@ -18,11 +18,11 @@ describe('Auto-clicker gameplay', () => {
       { stageNumber: 9, forcedType: 'HARD' })!;
     abilities.grant('AUTO', 'win:6'); abilities.activate('AUTO', true);
     expect(autoTarget(spawns.active.values())?.id).toBe(hard.id);
-    expect(abilities.tick(800, 1500).auto).toBe(1);
+    expect(abilities.tick(600, 1500).auto).toBe(1);
     expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 2n)?.hp).toBe(2);
     expect(economy.balance).toBe(0n);
     expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 2n)?.hp).toBe(1);
-    expect(abilities.tick(800, 1500).auto).toBe(1);
+    expect(abilities.tick(600, 1500).auto).toBe(1);
     expect(applyCookieHit(spawns, economy, stage, autoTarget(spawns.active.values())!.id, 1, 2n))
       .toMatchObject({ destroyed: true, currencyReward: 12n, stagePoints: 3n });
     expect(applyCookieHit(spawns, economy, stage, hard.id, 1, 2n)).toBeUndefined();
@@ -43,7 +43,7 @@ describe('Auto-clicker gameplay', () => {
       const pulses = abilities.tick(100, 1500);
       auto += pulses.auto; rain += pulses.rain;
     }
-    expect([auto, rain, warp.gameplayNow, warp.threatNow]).toEqual([7, 2, 6000, 3000]);
+    expect([auto, rain, warp.gameplayNow, warp.threatNow]).toEqual([10, 2, 6000, 3000]);
     abilities.endStage();
     expect(abilities.tick(6000, 1500)).toEqual({ auto: 0, rain: 0 });
   });
