@@ -1,6 +1,6 @@
 # Cookie Chaos · Checkpoint A — art direction
 
-**Status:** Checkpoint A approvato; Checkpoint B in revisione. I mockup sono statici: non sostituiscono la UI Phaser, non cambiano regole, dimensioni logiche, asset o hitbox. Le cifre nelle scene rappresentano uno stato illustrativo, non una nuova configurazione di gameplay.
+**Status:** Checkpoint A e B approvati; Checkpoint C in revisione. I mockup sono statici: non sostituiscono la UI Phaser, non cambiano regole, dimensioni logiche, asset o hitbox. Le cifre nelle scene rappresentano uno stato illustrativo, non una nuova configurazione di gameplay.
 
 ## 1. Visione
 

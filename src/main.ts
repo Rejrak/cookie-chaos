@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, RULES, SpawnManager, type Cookie, type PlayArea } from './game';
+import { COOKIE_SOURCE_RADIUS, COOKIE_TYPES, SpawnManager, type Cookie, type PlayArea } from './game';
 import { Economy, formatAmount } from './economy';
 import { applyBossHit, applyCookieHit, applyDamage, applyBombHit, applyExpiry } from './gameplay';
 import { HealthManager, type DamageResult } from './health';
@@ -10,7 +10,11 @@ import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrade
 import { hardHpForStage, kingdomName } from './cycle';
 import { TimeWarp, timeWarpCost } from './time-warp';
 import { ABILITIES, ABILITY_IDS, AbilityManager, abilityCost, autoTarget, freeAbilityForBossStage, type AbilityId } from './abilities';
+import { calculateGameLayout } from './ui-layout';
 import './style.css';
+
+type ShopRow = { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text;
+  icon: Phaser.GameObjects.Image; badge: Phaser.GameObjects.Rectangle; badgeText: Phaser.GameObjects.Text };
 
 class GameScene extends Phaser.Scene {
   private model = new SpawnManager();
@@ -50,37 +54,54 @@ class GameScene extends Phaser.Scene {
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private shownSeconds = -1;
   private progressWidth = 0;
-  private shopRows = new Map<UpgradeId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
+  private shopRows = new Map<UpgradeId, ShopRow>();
   private shopOpen = false;
   private shopTab: 'OFFENSE' | 'DEFENSE' | 'SPECIAL' = 'OFFENSE';
   private abilityPanelOpen = false;
   private abilityButtons = new Map<AbilityId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
-  private abilityBuyRows = new Map<AbilityId, { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }>();
+  private abilityBuyRows = new Map<AbilityId, ShopRow>();
   private abilityToggle!: Phaser.GameObjects.Rectangle;
   private abilityToggleText!: Phaser.GameObjects.Text;
   private spawnTimer!: Phaser.Time.TimerEvent;
   private titleText!: Phaser.GameObjects.Text;
   private balanceText!: Phaser.GameObjects.Text;
   private healthText!: Phaser.GameObjects.Text;
+  private shieldText!: Phaser.GameObjects.Text;
   private warpButton!: Phaser.GameObjects.Rectangle;
   private warpButtonText!: Phaser.GameObjects.Text;
   private statsText!: Phaser.GameObjects.Text;
   private stageText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private progressText!: Phaser.GameObjects.Text;
+  private toughText!: Phaser.GameObjects.Text;
   private progressBack!: Phaser.GameObjects.Rectangle;
   private progressFill!: Phaser.GameObjects.Rectangle;
   private shopBackground!: Phaser.GameObjects.Rectangle;
   private shopTitle!: Phaser.GameObjects.Text;
+  private shopWallet!: Phaser.GameObjects.Text;
   private shopTabs!: { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }[];
   private warpBuyButton!: Phaser.GameObjects.Rectangle;
   private warpBuyLabel!: Phaser.GameObjects.Text;
+  private warpBuyIcon!: Phaser.GameObjects.Image;
+  private warpBuyBadge!: Phaser.GameObjects.Rectangle;
+  private warpBuyBadgeText!: Phaser.GameObjects.Text;
   private toggleButton!: Phaser.GameObjects.Rectangle;
   private toggleText!: Phaser.GameObjects.Text;
   private terminalBackground!: Phaser.GameObjects.Rectangle;
   private terminalText!: Phaser.GameObjects.Text;
   private terminalButton!: Phaser.GameObjects.Rectangle;
   private terminalButtonText!: Phaser.GameObjects.Text;
+  private hudPanel!: Phaser.GameObjects.Rectangle;
+  private dockPanel!: Phaser.GameObjects.Rectangle;
+  private chromeArt!: Phaser.GameObjects.Graphics;
+  private shopArt!: Phaser.GameObjects.Graphics;
+  private icons = new Map<string, Phaser.GameObjects.Image>();
+  private shopPage = 0;
+  private shopPager!: Phaser.GameObjects.Text;
+  private shopPrev!: Phaser.GameObjects.Rectangle;
+  private shopNext!: Phaser.GameObjects.Rectangle;
+  private shopPrevText!: Phaser.GameObjects.Text;
+  private shopNextText!: Phaser.GameObjects.Text;
 
   constructor() { super('game'); }
 
@@ -93,25 +114,36 @@ class GameScene extends Phaser.Scene {
     this.load.svg('boss-cookieng-golden', '/boss-cookieng-golden.svg', { width: 128, height: 128 });
     for (const variant of ['boss-barbarian-exposed', 'boss-knight-exposed', 'boss-berserker-rage'])
       this.load.svg(variant, `/${variant}.svg`, { width: 128, height: 128 });
+    for (const name of ['health', 'shield', 'currency', 'stage-points', 'tough', 'timer', 'bomb',
+      'time-warp', 'cookie-rain', 'auto-clicker', 'parry', 'shop'])
+      this.load.svg(`icon-${name}`, `/icons/${name}.svg`, { width: 48, height: 48 });
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#fff2d4');
     this.background = this.add.image(0, 0, 'kingdom-background').setDepth(-10);
-    const heading = { fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#713b20' };
-    this.titleText = this.add.text(20, 6, 'Cookie Chaos', { ...heading, fontSize: '26px' }).setDepth(2);
+    this.hudPanel = this.add.rectangle(0, 0, 1, 1, 0xfff6df).setOrigin(0).setStrokeStyle(3, 0x845236).setDepth(1);
+    this.dockPanel = this.add.rectangle(0, 0, 1, 1, 0x6b3e29).setOrigin(0).setStrokeStyle(3, 0x845236).setDepth(1);
+    this.chromeArt = this.add.graphics().setDepth(1);
+    for (const name of ['health', 'shield', 'currency', 'stage-points', 'tough', 'timer', 'bomb',
+      'time-warp', 'cookie-rain', 'auto-clicker', 'parry', 'shop'])
+      this.icons.set(name, this.add.image(0, 0, `icon-${name}`).setDepth(3).setVisible(false));
+    const heading = { fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#35251e' };
+    this.titleText = this.add.text(20, 6, 'Cookie Chaos', { ...heading, fontFamily: 'Georgia, Cambria, serif', fontSize: '26px' }).setDepth(2);
     this.balanceText = this.add.text(20, 37, '', { ...heading, fontSize: '20px' }).setDepth(2);
     this.healthText = this.add.text(0, 40, '', { ...heading, fontSize: '14px' }).setOrigin(1, 0).setDepth(2);
+    this.shieldText = this.add.text(0, 40, '', { ...heading, fontSize: '14px' }).setDepth(2);
     this.warpButton = this.add.rectangle(0, 20, 86, 28, 0x627cad).setDepth(3).setInteractive({ useHandCursor: true });
     this.warpButtonText = this.add.text(0, 20, '', { fontFamily: 'system-ui, sans-serif',
       fontSize: '12px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(4);
     this.warpButton.on(Phaser.Input.Events.POINTER_DOWN, () => {
       if (this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
-      if (this.warp.activate()) { this.updateWarpButton(); this.floatText(this.warpButton, 'TIME WARP', '#426da0'); }
+      if (this.warp.activate()) { this.updateWarpButton(); this.floatText({ x: this.warpButton.x, y: this.warpButton.y - 32 }, 'WARP ON', '#5a4d9c'); }
     });
     this.stageText = this.add.text(20, 65, '', { ...heading, fontSize: '17px' }).setDepth(2);
     this.timerText = this.add.text(0, 65, '', { ...heading, fontSize: '17px' }).setOrigin(1, 0).setDepth(2);
     this.progressText = this.add.text(20, 86, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#713b20' }).setDepth(2);
+    this.toughText = this.add.text(20, 122, '', { fontFamily: 'system-ui, sans-serif', fontSize: '13px', fontStyle: 'bold', color: '#35251e' }).setDepth(2);
     this.progressBack = this.add.rectangle(20, 107, 1, 10, 0xd6b88a).setOrigin(0).setDepth(2);
     this.progressFill = this.add.rectangle(20, 107, 1, 10, 0xc97831).setOrigin(0).setDepth(3);
     this.statsText = this.add.text(350, 16, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#713b20' }).setDepth(2);
@@ -120,7 +152,7 @@ class GameScene extends Phaser.Scene {
     this.bossProtectionText = this.add.text(20, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: '#713b20' }).setDepth(2);
     this.bossProtectionBack = this.add.rectangle(20, 0, 1, 8, 0xd6b88a).setOrigin(0).setDepth(2);
     this.bossProtectionFill = this.add.rectangle(20, 0, 1, 8, 0x6685a1).setOrigin(0).setDepth(3);
-    this.parryTarget = this.add.circle(0, 0, 27, 0x9a5540).setStrokeStyle(4, 0xffffff).setDepth(7).setVisible(false);
+    this.parryTarget = this.add.circle(0, 0, 33, 0x236451).setStrokeStyle(4, 0xfff6df).setDepth(7).setVisible(false);
     this.parryLabel = this.add.text(0, 0, 'PARRY', { fontFamily: 'system-ui, sans-serif',
       fontSize: '13px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(8).setVisible(false);
     this.parryTarget.on(Phaser.Input.Events.POINTER_DOWN, () => {
@@ -129,23 +161,35 @@ class GameScene extends Phaser.Scene {
       this.renderAttack();
     });
     this.shopBackground = this.add.rectangle(0, 0, 1, 1, 0xffe5b6).setOrigin(0).setDepth(4).setInteractive();
-    this.shopTitle = this.add.text(0, 0, 'UPGRADES', { ...heading, fontSize: '20px' }).setDepth(5);
+    this.shopArt = this.add.graphics().setDepth(4);
+    this.shopTitle = this.add.text(0, 0, 'Kingdom Market', { ...heading, fontFamily: 'Georgia, Cambria, serif', fontSize: '22px' }).setDepth(5);
+    this.shopWallet = this.add.text(0, 0, '', { ...heading, fontSize: '14px' }).setDepth(5);
     this.shopTabs = (['OFFENSE', 'DEFENSE', 'SPECIAL'] as const).map(tab => {
       const button = this.add.rectangle(0, 0, 1, 26, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
       const label = this.add.text(0, 0, tab, { fontFamily: 'system-ui, sans-serif',
         fontSize: '13px', fontStyle: 'bold', color: '#57301d' }).setOrigin(0.5, 0).setDepth(6);
-      button.on(Phaser.Input.Events.POINTER_DOWN, () => { this.shopTab = tab; this.layout(); });
+      button.on(Phaser.Input.Events.POINTER_DOWN, () => { this.shopTab = tab; this.shopPage = 0; this.layout(); });
       return { button, label };
     });
     for (const id of UPGRADE_IDS) {
       const button = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
       const label = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#57301d', lineSpacing: 0 }).setDepth(6);
+      const iconName = id === 'health' ? 'health' : id === 'shield' ? 'shield' : id === 'speed' ? 'timer' :
+        id === 'power' ? 'tough' : id === 'luck' ? 'stage-points' : 'currency';
+      const icon = this.add.image(0, 0, `icon-${iconName}`).setDepth(6);
+      const badge = this.add.rectangle(0, 0, 86, 44, 0x236451).setDepth(6);
+      const badgeText = this.add.text(0, 0, '', { ...heading, fontSize: '12px', color: '#fff6df', align: 'center' })
+        .setOrigin(0.5).setDepth(7);
       button.on(Phaser.Input.Events.POINTER_DOWN, () => this.buy(id));
-      this.shopRows.set(id, { button, label });
+      this.shopRows.set(id, { button, label, icon, badge, badgeText });
     }
     this.warpBuyButton = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
     this.warpBuyLabel = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif',
       fontSize: '14px', color: '#57301d' }).setDepth(6);
+    this.warpBuyIcon = this.add.image(0, 0, 'icon-time-warp').setDepth(6);
+    this.warpBuyBadge = this.add.rectangle(0, 0, 86, 44, 0x236451).setDepth(6);
+    this.warpBuyBadgeText = this.add.text(0, 0, '', { ...heading, fontSize: '12px', color: '#fff6df', align: 'center' })
+      .setOrigin(0.5).setDepth(7);
     this.warpBuyButton.on(Phaser.Input.Events.POINTER_DOWN, () => {
       if (this.stage.status === 'BOSS_FIGHT' || !this.warp.buy(this.economy, this.stage.stageNumber)) return;
       this.updateHud();
@@ -155,19 +199,23 @@ class GameScene extends Phaser.Scene {
     for (const id of ABILITY_IDS) {
       const button = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
       const label = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#57301d' }).setDepth(6);
+      const icon = this.add.image(0, 0, `icon-${id === 'RAIN' ? 'cookie-rain' : 'auto-clicker'}`).setDepth(6);
+      const badge = this.add.rectangle(0, 0, 86, 44, 0x236451).setDepth(6);
+      const badgeText = this.add.text(0, 0, '', { ...heading, fontSize: '12px', color: '#fff6df', align: 'center' })
+        .setOrigin(0.5).setDepth(7);
       button.on(Phaser.Input.Events.POINTER_DOWN, () => {
         if (this.stage.status === 'BOSS_FIGHT' || !this.abilities.buy(id, this.economy, this.stage.stageNumber)) return;
         this.updateHud();
         button.setStrokeStyle(3, 0xffffff);
         this.time.delayedCall(250, () => button.setStrokeStyle(0));
       });
-      this.abilityBuyRows.set(id, { button, label });
+      this.abilityBuyRows.set(id, { button, label, icon, badge, badgeText });
       const action = this.add.rectangle(0, 0, 1, 1, 0x3d877c).setDepth(4).setInteractive({ useHandCursor: true });
       const actionLabel = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', fontStyle: 'bold', color: '#ffffff' })
         .setOrigin(0.5).setDepth(5);
       action.on(Phaser.Input.Events.POINTER_DOWN, () => {
         if (this.modalShop || !this.abilities.activate(id, this.stage.status === 'RUNNING')) return;
-        this.floatText({ x: action.x, y: action.y }, id === 'RAIN' ? 'COOKIE RAIN' : 'AUTO-CLICKER', '#3d877c');
+        this.floatText({ x: action.x, y: action.y - 32 }, id === 'RAIN' ? 'RAIN ON' : 'AUTO ON', '#176d7a');
         this.updateHud();
       });
       this.abilityButtons.set(id, { button: action, label: actionLabel });
@@ -179,6 +227,13 @@ class GameScene extends Phaser.Scene {
       this.abilityPanelOpen = !this.abilityPanelOpen;
       this.layout();
     });
+    this.shopPrev = this.add.rectangle(0, 0, 44, 44, 0x6b3e29).setDepth(6).setInteractive({ useHandCursor: true });
+    this.shopNext = this.add.rectangle(0, 0, 44, 44, 0x6b3e29).setDepth(6).setInteractive({ useHandCursor: true });
+    this.shopPager = this.add.text(0, 0, '', { ...heading, fontSize: '14px' }).setOrigin(0.5).setDepth(6);
+    this.shopPrevText = this.add.text(0, 0, '‹', { ...heading, fontSize: '26px', color: '#fff6df' }).setOrigin(0.5).setDepth(7);
+    this.shopNextText = this.add.text(0, 0, '›', { ...heading, fontSize: '26px', color: '#fff6df' }).setOrigin(0.5).setDepth(7);
+    this.shopPrev.on(Phaser.Input.Events.POINTER_DOWN, () => { this.shopPage = Math.max(0, this.shopPage - 1); this.layout(); });
+    this.shopNext.on(Phaser.Input.Events.POINTER_DOWN, () => { this.shopPage++; this.layout(); });
     this.toggleButton = this.add.rectangle(0, 0, 180, 52, 0xb76b36).setDepth(11).setInteractive({ useHandCursor: true });
     this.toggleText = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '17px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5).setDepth(12);
     this.toggleButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleShop());
@@ -244,12 +299,11 @@ class GameScene extends Phaser.Scene {
     } while (remaining > 0);
   }
 
-  private get sideShop() { return this.scale.width >= 560 && this.scale.height >= 320; }
+  private get sideShop() { return calculateGameLayout(this.scale.width, this.scale.height, this.stage.status === 'BOSS_FIGHT').sideShop; }
   private get modalShop() { return !this.sideShop && this.shopOpen; }
 
   private get playArea(): PlayArea {
-    return { left: 0, top: RULES.hudHeight, right: this.sideShop ? this.scale.width - 312 : this.scale.width,
-      bottom: this.scale.height - 72 };
+    return calculateGameLayout(this.scale.width, this.scale.height, this.stage.status === 'BOSS_FIGHT').playArea;
   }
 
   private addCookie(first = false, bonus = false) {
@@ -365,6 +419,7 @@ class GameScene extends Phaser.Scene {
     this.bossAttack = null;
     this.parryTarget.setVisible(false).disableInteractive();
     this.parryLabel.setVisible(false);
+    this.icons.get('parry')?.setVisible(false);
     this.boss = null;
   }
 
@@ -424,19 +479,20 @@ class GameScene extends Phaser.Scene {
 
   private layoutBoss() {
     if (!this.boss || !this.bossSprite) return;
-    const playWidth = this.scale.width;
-    const bottom = this.scale.height - 72;
-    const radius = Math.min(96, (playWidth - 32) / 2, (bottom - RULES.hudHeight - 16) / 2);
-    const x = playWidth / 2;
-    const y = (RULES.hudHeight + bottom) / 2;
+    const area = this.playArea;
+    const playWidth = area.right - area.left;
+    const radius = Math.min(96, (playWidth - 128) / 2, (area.bottom - area.top - 12) / 2);
+    const x = playWidth < 420 ? area.left + playWidth * 0.62 : area.left + playWidth / 2;
+    const y = (area.top + area.bottom) / 2;
     this.bossSprite.setPosition(x, y).setScale(radius / 60);
     if (this.bossGuard) {
       this.bossGuard.setPosition(this.boss.config.id === 'knight' ? x + radius * 0.48 : x,
         this.boss.config.id === 'knight' ? y + radius * 0.25 : y).setScale(radius / 60);
     }
-    const parryX = Math.max(30, x - radius - 34);
+    const parryX = Math.max(36, x - radius - 42);
     this.parryTarget.setPosition(parryX, y);
-    this.parryLabel.setPosition(parryX, y);
+    this.parryLabel.setPosition(parryX, y + 15);
+    this.icons.get('parry')!.setPosition(parryX, y - 9).setDisplaySize(24, 24).setDepth(8);
   }
 
   private renderAttack() {
@@ -445,6 +501,7 @@ class GameScene extends Phaser.Scene {
       (attack?.state === 'WARNING' || attack?.state === 'PARRY_WINDOW');
     this.parryTarget.setVisible(visible);
     this.parryLabel.setVisible(visible).setText(attack?.state === 'PARRY_WINDOW' ? 'PARRY' : 'WAIT');
+    this.icons.get('parry')!.setVisible(visible);
     if (attack?.canParry && visible) this.parryTarget.setFillStyle(0x3d877c).setInteractive();
     else this.parryTarget.setFillStyle(0x9a5540).disableInteractive();
     if (visible) this.bossStatusText.setText(`${attack.name} ${attack.strike}/${attack.strikesTotal} · ${attack.state === 'PARRY_WINDOW' ? 'PARRY NOW' : 'WARNING'}`);
@@ -505,25 +562,31 @@ class GameScene extends Phaser.Scene {
     this.updateHud();
     const row = this.shopRows.get(id)!;
     row.button.setStrokeStyle(3, 0xffffff);
-    this.time.delayedCall(250, () => row.button.setStrokeStyle(0));
+    this.time.delayedCall(250, () => this.updateHud());
   }
 
   private updateHud() {
-    this.balanceText.setText(`Cookies: ${formatAmount(this.economy.balance)}`);
-    this.healthText.setText(`HP ${this.health.hp}/${this.health.maxHp} · S ${this.health.shields}`);
+    this.balanceText.setText(`${formatAmount(this.economy.balance)} Cookies`);
+    this.healthText.setText(`${this.health.hp}/${this.health.maxHp} HP`);
+    this.shieldText.setText(`${this.health.shields} Shield`);
     this.updateWarpButton();
     const bossFight = this.stage.status === 'BOSS_FIGHT' && this.boss !== null;
-    const playRight = bossFight ? this.scale.width : this.sideShop ? this.scale.width - 312 : this.scale.width;
-    this.stageText.setText(`Stage ${this.stage.stageNumber} · ${kingdomName(this.stage.cycle.cycleNumber)}`)
-      .setFontSize(playRight < 400 ? 14 : 17);
+    const layout = calculateGameLayout(this.scale.width, this.scale.height, bossFight);
+    this.stageText.setText(`${kingdomName(this.stage.cycle.cycleNumber)} · Stage ${this.stage.stageNumber}`)
+      .setFontSize(layout.fieldRight < 400 ? 13 : 16);
     const missingTough = this.stage.toughRequired - this.stage.toughDestroyed;
-    this.progressText.setFontSize(playRight < 400 ? 12 : 14).setText(bossFight ? `${this.boss!.config.name} · HP ${this.boss!.hp}/${this.boss!.config.bodyHp}` :
-      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP${missingTough > 0 && this.stage.progress === this.stage.target ?
-        ` · Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
-        this.stage.toughRequired ? ` · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}` :
-          this.stage.isBossCheckpoint ? ' · Boss ahead' : ''}`);
+    this.progressText.setFontSize(layout.compact ? 13 : 15).setText(bossFight ?
+      `${this.boss!.config.name} · Body ${this.boss!.hp}/${this.boss!.config.bodyHp} HP` :
+      `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP`);
+    this.toughText.setText(bossFight ? '' : this.stage.toughRequired ?
+      missingTough > 0 && this.stage.progress === this.stage.target ?
+        `Break ${missingTough} more Tough Cookie${missingTough === 1 ? '' : 's'}` :
+        `Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}` :
+      this.stage.isBossCheckpoint ? 'Boss ahead' : '');
+    this.icons.get('tough')?.setVisible(!!this.toughText.text && !layout.compact && !bossFight)
+      .setPosition(21, 132).setDisplaySize(20, 20);
     this.progressFill.setSize(this.progressWidth * (bossFight ? this.boss!.hp / this.boss!.config.bodyHp : this.stage.progressPercent / 100), 10)
-      .setFillStyle(bossFight ? 0xb84d35 : 0xc97831);
+      .setFillStyle(bossFight ? 0xa93438 : 0x276b93);
     this.bossStatusText.setText(bossFight ? this.boss!.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2× DAMAGE' :
       this.boss!.phase === 'RAGE' ? `RAGE · COMBO ${this.boss!.comboCount}/3` :
         this.boss!.phase === 'GOLDEN' ? 'GOLDEN FORM · BODY EXPOSED' :
@@ -532,9 +595,10 @@ class GameScene extends Phaser.Scene {
       `${this.boss!.config.protection} ${this.boss!.protectionHp}/${this.boss!.config.protectionHp}` : '');
     this.bossProtectionBack.setVisible(bossFight && this.boss!.protectionHp > 0);
     this.bossProtectionFill.setVisible(bossFight && this.boss!.protectionHp > 0)
-      .setSize(bossFight ? (this.scale.width - 40) * this.boss!.protectionHp / (this.boss!.config.protectionHp || 1) : 0, 8);
+      .setSize(bossFight ? (layout.fieldRight - 32) * this.boss!.protectionHp / (this.boss!.config.protectionHp || 1) : 0, 8);
     this.updateTimer();
-    this.shopTitle.setText(this.modalShop && this.scale.height < 420 ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES');
+    this.shopTitle.setText('Kingdom Market');
+    this.shopWallet.setText(`◈ ${formatAmount(this.economy.balance)} Cookies available`);
     this.statsText.setText(`Earned ${formatAmount(this.economy.lifetimeEarned)}  ·  Destroyed ${this.economy.cookiesDestroyed}  ·  Hits ${this.economy.validHits}`);
     for (const id of UPGRADE_IDS) {
       const upgrade = UPGRADES[id];
@@ -545,37 +609,46 @@ class GameScene extends Phaser.Scene {
         id === 'power' ? `${this.upgrades.damage} damage / click` :
           id === 'luck' ? `Golden chance ${this.upgrades.goldenChanceBp / 100}%` :
             id === 'health' ? `${this.upgrades.maxHp} maximum HP` : `${this.upgrades.stageShields} shields / stage`;
-      const status = !upgrade.available ? 'Price —  ·  Locked: M3' : cost === null && id === 'power' ?
-        `Unlock at Stage ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : cost === null ? 'Price —  ·  MAX' :
-        `Price ${formatAmount(cost)}  ·  ${this.economy.balance >= cost ? 'BUY' : 'Need more'}`;
+      const status = !upgrade.available ? 'LOCKED' : cost === null && id === 'power' ?
+        `WAIT\nSTAGE ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : cost === null ? 'MAX' :
+        this.economy.balance >= cost ? 'BUY' : 'NEED MORE';
       const row = this.shopRows.get(id)!;
-      const shortPrice = cost === null ? id === 'power' ?
-        `Unlock Stage ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : 'MAX' :
-        `${formatAmount(cost)} Cookies`;
       row.label.setText(this.scale.height < 420 ?
-        `${upgrade.name} Lv ${this.upgrades.level(id)} · ${shortPrice}\n${effect} · ${cost === null ? id === 'power' ? 'WAIT' : 'MAX' : this.economy.balance >= cost ? 'BUY' : 'Need more'}` :
-        `${upgrade.name}  ·  Lv ${this.upgrades.level(id)}${id === 'power' ? `/${this.upgrades.powerLimit}` : ''}\n${effect}\n${status}`);
-      row.button.setFillStyle(cost !== null && this.economy.balance >= cost ? 0xe9ad63 : 0xe4d4b9);
+        `${upgrade.name} · Lv ${this.upgrades.level(id)}\n${effect}` :
+        `${upgrade.name} · Lv ${this.upgrades.level(id)}${id === 'power' ? `/${this.upgrades.powerLimit}` : ''}\n${effect}`);
+      const ready = cost !== null && this.economy.balance >= cost;
+      row.button.setFillStyle(ready ? 0xfff6df : 0xf5e4bf).setStrokeStyle(2, ready ? 0x236451 : 0xa79c8b);
+      row.badge.setFillStyle(ready ? 0x236451 : 0xa79c8b);
+      row.badgeText.setText(`${status}${cost === null ? '' : `\n${formatAmount(cost)} ◈`}`);
+      if (ready && row.button.visible) row.button.setInteractive({ useHandCursor: true });
+      else row.button.disableInteractive();
     }
     const warpCost = timeWarpCost(this.stage.stageNumber);
-    this.warpBuyLabel.setText(this.scale.height < 420 ?
-      `Time Warp · ${this.warp.charges}/3 · ${formatAmount(warpCost)} Cookies\n6s slower threats · ${this.warp.charges >= 3 ? 'FULL' : this.economy.balance >= warpCost ? 'BUY' : 'Need more'}` :
-      `Time Warp · ${this.warp.charges}/3 charges\n6s slower threats; stage timer normal\nPrice ${formatAmount(warpCost)} · ${this.warp.charges >= 3 ? 'FULL' : this.economy.balance >= warpCost ? 'BUY' : 'Need more'}`);
-    this.warpBuyButton.setFillStyle(this.warp.charges < 3 && this.economy.balance >= warpCost ? 0xe9ad63 : 0xe4d4b9);
+    this.warpBuyLabel.setText(`Time Warp · ${this.warp.charges}/3\n6s slower threats`);
+    const warpReady = this.warp.charges < 3 && this.economy.balance >= warpCost;
+    this.warpBuyButton.setFillStyle(warpReady ? 0xfff6df : 0xf5e4bf)
+      .setStrokeStyle(2, warpReady ? 0x236451 : 0xa79c8b);
+    this.warpBuyBadge.setFillStyle(warpReady ? 0x236451 : 0xa79c8b);
+    this.warpBuyBadgeText.setText(`${this.warp.charges >= 3 ? 'MAX' : warpReady ? 'BUY' : 'NEED MORE'}\n${formatAmount(warpCost)} ◈`);
+    if (warpReady && this.warpBuyButton.visible) this.warpBuyButton.setInteractive({ useHandCursor: true });
+    else this.warpBuyButton.disableInteractive();
     for (const id of ABILITY_IDS) {
       const cost = abilityCost(id, this.stage.stageNumber);
       const charges = this.abilities.charges(id);
       const row = this.abilityBuyRows.get(id)!;
-      row.label.setText(this.scale.height < 420 ?
-        `${ABILITIES[id].name} · ${charges}/3 · ${formatAmount(cost)} Cookies\n${ABILITIES[id].durationMs / 1000}s · ${charges === 3 ? 'FULL' : this.economy.balance >= cost ? 'BUY' : 'Need more'}` :
-        `${ABILITIES[id].name} · ${charges}/3 charges\n${ABILITIES[id].durationMs / 1000}s of ${id === 'RAIN' ? 'extra cookie spawns' : 'safe automatic hits'}\nPrice ${formatAmount(cost)} · ${charges === 3 ? 'FULL' : this.economy.balance >= cost ? 'BUY' : 'Need more'}`);
-      row.button.setFillStyle(charges < 3 && this.economy.balance >= cost ? 0xe9ad63 : 0xe4d4b9);
+      row.label.setText(`${ABILITIES[id].name} · ${charges}/3\n${ABILITIES[id].durationMs / 1000}s ${id === 'RAIN' ? 'extra spawns' : 'safe hits'}`);
+      const ready = charges < 3 && this.economy.balance >= cost;
+      row.button.setFillStyle(ready ? 0xfff6df : 0xf5e4bf).setStrokeStyle(2, ready ? 0x236451 : 0xa79c8b);
+      row.badge.setFillStyle(ready ? 0x236451 : 0xa79c8b);
+      row.badgeText.setText(`${charges >= 3 ? 'MAX' : ready ? 'BUY' : 'NEED MORE'}\n${formatAmount(cost)} ◈`);
+      if (ready && row.button.visible) row.button.setInteractive({ useHandCursor: true });
+      else row.button.disableInteractive();
     }
     this.updateAbilityButtons();
   }
 
   private updateAbilityButtons() {
-    const visible = this.stage.status === 'RUNNING' && !this.modalShop && (this.sideShop || this.abilityPanelOpen);
+    const visible = this.stage.status === 'RUNNING' && !this.modalShop;
     for (const id of ABILITY_IDS) {
       const row = this.abilityButtons.get(id);
       if (!row) continue;
@@ -584,7 +657,8 @@ class GameScene extends Phaser.Scene {
       row.label.setText(remaining ? `${id === 'RAIN' ? 'RAIN' : 'AUTO'} ${Math.ceil(remaining / 1000)}s` :
         cooldown ? `${id === 'RAIN' ? 'RAIN' : 'AUTO'} CD ${Math.ceil(cooldown / 1000)}s` :
           `${id === 'RAIN' ? 'RAIN' : 'AUTO'} ×${this.abilities.charges(id)}`);
-      row.button.setVisible(visible).setFillStyle(remaining ? 0x627cad : this.abilities.charges(id) ? 0x3d877c : 0x8d826f);
+      row.button.setVisible(visible).setFillStyle(remaining ? 0x5a4d9c : this.abilities.charges(id) ?
+        id === 'RAIN' ? 0x176d7a : 0x7653a0 : 0xa79c8b);
       row.label.setVisible(visible);
       if (visible && !remaining && !cooldown && this.abilities.charges(id)) row.button.setInteractive({ useHandCursor: true });
       else row.button.disableInteractive();
@@ -593,11 +667,12 @@ class GameScene extends Phaser.Scene {
 
   private updateWarpButton() {
     const activeStage = this.stage.status === 'RUNNING' || this.stage.status === 'BOSS_FIGHT';
-    const visible = activeStage && !this.modalShop && (this.warp.charges > 0 || this.warp.active);
-    this.warpButton.setVisible(visible).setFillStyle(this.warp.active ? 0x3d877c : 0x627cad);
+    const visible = activeStage && !this.modalShop;
+    this.warpButton.setVisible(visible).setFillStyle(this.warp.active ? 0x236451 :
+      this.warp.charges ? 0x5a4d9c : 0xa79c8b);
     this.warpButtonText.setVisible(visible).setText(this.warp.active ?
       `WARP ${Math.ceil(this.warp.remainingMs / 1000)}s` : `WARP ×${this.warp.charges}`);
-    if (visible && !this.warp.active) this.warpButton.setInteractive();
+    if (visible && !this.warp.active && this.warp.charges > 0) this.warpButton.setInteractive();
     else this.warpButton.disableInteractive();
   }
 
@@ -605,8 +680,8 @@ class GameScene extends Phaser.Scene {
     const seconds = Math.ceil(this.stage.remainingMs / 1000);
     if (seconds === this.shownSeconds) return;
     this.shownSeconds = seconds;
-    this.timerText.setText(`Time ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)
-      .setColor(seconds <= 10 ? '#bd3527' : '#713b20');
+    this.timerText.setText(`${seconds <= 10 ? '! ' : ''}${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)
+      .setColor(seconds <= 10 ? '#a93438' : '#35251e');
   }
 
   private toggleShop() {
@@ -631,103 +706,188 @@ class GameScene extends Phaser.Scene {
   private layout() {
     const width = this.scale.width;
     const height = this.scale.height;
-    const side = this.sideShop;
     const bossFight = this.stage.status === 'BOSS_FIGHT';
+    const frame = calculateGameLayout(width, height, bossFight);
+    const { sideShop, compact, hudHeight, dockHeight, fieldRight, playArea } = frame;
+    const visible = (sideShop || this.shopOpen) && !bossFight;
     this.background.setTexture(bossFight ? 'boss-arena' : 'kingdom-background')
       .setPosition(width / 2, height / 2).setScale(Math.max(width / 1280, height / 720));
-    const playRight = bossFight ? width : side ? width - 312 : width;
-    const compact = !side && height < 420;
-    const visible = (side || this.shopOpen) && !bossFight;
-    this.titleText.setFontSize(playRight < 400 ? 18 : 26);
-    this.balanceText.setFontSize(playRight < 400 ? 16 : 20);
-    this.healthText.setPosition(playRight - 16, 40).setFontSize(playRight < 400 ? 12 : 14);
-    this.warpButton.setPosition(playRight - 59, 20);
-    this.warpButtonText.setPosition(playRight - 59, 20);
-    this.timerText.setPosition(playRight - 16, 65).setFontSize(playRight < 300 ? 14 : 17);
-    this.statsText.setVisible(width >= 1100 && !bossFight);
-    this.progressWidth = Math.min(420, playRight - 40);
-    this.progressBack.setSize(this.progressWidth, 10);
-    this.progressFill.setSize(this.progressWidth * (bossFight && this.boss ? this.boss.hp / this.boss.config.bodyHp : this.stage.progressPercent / 100), 10);
-    this.bossPanel.setPosition(0, height - 72).setSize(playRight, 72).setVisible(bossFight);
-    this.bossStatusText.setPosition(20, height - 65).setFontSize(width < 400 ? 14 : 16).setVisible(bossFight);
-    this.bossProtectionText.setPosition(20, height - 43).setVisible(bossFight && !!this.boss?.protectionHp);
-    this.bossProtectionBack.setPosition(20, height - 19).setSize(playRight - 40, 8)
+    this.hudPanel.setVisible(false);
+    this.dockPanel.setVisible(false);
+    this.chromeArt.clear().fillStyle(0xfff6df).fillRoundedRect(4, 4, fieldRight - 8, hudHeight - 8, 13)
+      .lineStyle(3, 0x845236).strokeRoundedRect(4, 4, fieldRight - 8, hudHeight - 8, 13)
+      .fillStyle(0x6b3e29).fillRoundedRect(4, height - dockHeight + 4, fieldRight - 8, dockHeight - 8, 12)
+      .lineStyle(3, 0x845236).strokeRoundedRect(4, height - dockHeight + 4, fieldRight - 8, dockHeight - 8, 12);
+    this.titleText.setPosition(12, compact ? 5 : 8).setFontSize(compact ? 17 : fieldRight < 480 ? 21 : 26);
+    this.stageText.setPosition(fieldRight - 12, compact ? 8 : 12).setOrigin(1, 0)
+      .setFontSize(compact ? 12 : fieldRight < 480 ? 13 : 16);
+    this.healthText.setPosition(35, compact ? 31 : 41).setOrigin(0, 0)
+      .setFontSize(compact ? 13 : 15);
+    this.shieldText.setPosition(compact ? 137 : 145, compact ? 31 : 41)
+      .setFontSize(compact ? 13 : 15);
+    this.timerText.setPosition(fieldRight - 12, compact ? 31 : 41).setFontSize(compact ? 13 : 17);
+    this.balanceText.setPosition(35, 70).setFontSize(15).setVisible(!compact);
+    this.progressText.setPosition(compact ? 12 : 34, compact ? 55 : 94).setFontSize(compact ? 13 : 15);
+    this.progressWidth = fieldRight - 24;
+    this.progressBack.setPosition(12, compact ? 78 : 114).setSize(this.progressWidth, 9)
+      .setFillStyle(0xd6b88a);
+    this.progressFill.setPosition(12, compact ? 78 : 114).setSize(this.progressWidth *
+      (bossFight && this.boss ? this.boss.hp / this.boss.config.bodyHp : this.stage.progressPercent / 100), 9)
+      .setFillStyle(bossFight ? 0xa93438 : 0x276b93);
+    this.toughText.setPosition(compact ? fieldRight - 12 : 34, compact ? 55 : 124)
+      .setOrigin(compact ? 1 : 0, 0).setFontSize(compact ? 12 : 13);
+    this.statsText.setVisible(false);
+    const icon = (name: string, x: number, y: number, size: number, show = true) => {
+      this.icons.get(name)!.setPosition(x, y).setDisplaySize(size, size).setVisible(show);
+    };
+    icon('health', 22, compact ? 40 : 50, 23);
+    icon('timer', fieldRight - (compact ? 87 : 105), compact ? 40 : 50, 23);
+    icon('shield', compact ? 124 : 131, compact ? 40 : 50, 23);
+    icon('currency', 22, 78, 22, !compact);
+    icon('stage-points', 22, 102, 20, !compact);
+    icon('tough', 21, 131, 20, !!this.toughText.text && !compact && !bossFight);
+    icon('bomb', 0, 0, 1, false);
+
+    this.bossPanel.setPosition(0, playArea.bottom).setSize(fieldRight, frame.bossPanelHeight)
+      .setFillStyle(0xfff6df).setStrokeStyle(2, 0x845236).setVisible(bossFight);
+    this.bossStatusText.setPosition(12, playArea.bottom + 3).setFontSize(compact ? 12 : 14).setVisible(bossFight);
+    this.bossProtectionText.setPosition(12, playArea.bottom + 20).setFontSize(12)
       .setVisible(bossFight && !!this.boss?.protectionHp);
-    this.bossProtectionFill.setPosition(20, height - 19)
-      .setSize(this.boss ? (playRight - 40) * this.boss.protectionHp / (this.boss.config.protectionHp || 1) : 0, 8)
+    this.bossProtectionBack.setPosition(12, playArea.bottom + 39).setSize(fieldRight - 24, 6)
       .setVisible(bossFight && !!this.boss?.protectionHp);
-    this.shopBackground.setPosition(side ? width - 312 : compact ? 0 : 8, side || compact ? 0 : RULES.hudHeight)
-      .setSize(side ? 312 : compact ? width : width - 16, side || compact ? height : height - RULES.hudHeight).setVisible(visible);
-    this.shopTitle.setPosition(side ? width - 296 : compact ? 16 : 20, side ? 20 : compact ? 12 : RULES.hudHeight + 10)
-      .setText(compact && this.shopOpen ? `Shop · ${formatAmount(this.economy.balance)}` : 'UPGRADES').setVisible(visible);
-    const running = this.stage.status === 'RUNNING';
-    this.toggleButton.setVisible(!side && !bossFight).setPosition(this.shopOpen ? width - (compact ? 58 : 78) :
-      running ? width * 0.75 : width / 2,
-      this.shopOpen ? (compact ? 24 : RULES.hudHeight + 20) : running && this.abilityPanelOpen ? height - 54 : height - 36)
-      .setSize(this.shopOpen ? (compact ? 100 : 116) : running ? Math.min(148, width / 2 - 12) : 180,
-        this.shopOpen ? 36 : running && this.abilityPanelOpen ? 28 : 52);
-    this.toggleText.setVisible(!side && !bossFight).setPosition(this.toggleButton.x, this.toggleButton.y)
-      .setText(this.shopOpen ? 'Close' : 'Shop / Upgrades');
-    const abilityToggleVisible = !side && running && !this.shopOpen;
-    this.abilityToggle.setVisible(abilityToggleVisible).setPosition(width * 0.25,
-      this.abilityPanelOpen ? height - 54 : height - 36)
-      .setSize(Math.min(148, width / 2 - 12), this.abilityPanelOpen ? 28 : 52);
-    this.abilityToggleText.setVisible(abilityToggleVisible).setPosition(this.abilityToggle.x, this.abilityToggle.y)
-      .setText(this.abilityPanelOpen ? 'Close abilities' : 'Abilities');
-    if (abilityToggleVisible) this.abilityToggle.setInteractive({ useHandCursor: true });
-    else this.abilityToggle.disableInteractive();
+    this.bossProtectionFill.setPosition(12, playArea.bottom + 39)
+      .setSize(this.boss ? (fieldRight - 24) * this.boss.protectionHp / (this.boss.config.protectionHp || 1) : 0, 6)
+      .setVisible(bossFight && !!this.boss?.protectionHp);
+
+    const dockY = height - dockHeight / 2;
+    const cellWidth = Math.min(150, (fieldRight - 20) / 4 - 4);
+    const centers = [1, 3, 5, 7].map(n => 10 + (fieldRight - 20) * n / 8);
+    this.toggleButton.setVisible(!bossFight && !sideShop).setPosition(
+      this.shopOpen ? width - 35 : centers[0], this.shopOpen ? 32 : dockY)
+      .setSize(this.shopOpen ? 44 : cellWidth, this.shopOpen ? 44 : dockHeight - 12)
+      .setFillStyle(0x6b3e29).setStrokeStyle(2, 0xfff6df);
+    this.toggleText.setVisible(!bossFight && !sideShop).setPosition(this.toggleButton.x,
+      this.shopOpen ? this.toggleButton.y : dockY + (compact ? 12 : 16))
+      .setFontSize(compact ? 12 : 14).setText(this.shopOpen ? '×' : 'SHOP');
+    icon('shop', centers[0], dockY - 12, 22, !sideShop && !bossFight && !this.shopOpen);
+    this.icons.get('shop')!.setDepth(12);
+    if (!sideShop && !bossFight) this.toggleButton.setInteractive({ useHandCursor: true });
+    else this.toggleButton.disableInteractive();
+    this.abilityToggle.setVisible(false).disableInteractive();
+    this.abilityToggleText.setVisible(false);
     ABILITY_IDS.forEach((id, index) => {
       const row = this.abilityButtons.get(id)!;
-      const playWidth = side ? width - 312 : width;
-      row.button.setPosition(playWidth * (index ? 0.75 : 0.25), side ? height - 36 : height - 18)
-        .setSize(Math.min(148, playWidth / 2 - 12), side ? 52 : 30);
-      row.label.setPosition(row.button.x, row.button.y);
+      row.button.setPosition(centers[index + 1], dockY).setSize(cellWidth, dockHeight - 12)
+        .setStrokeStyle(2, 0xfff6df);
+      row.label.setPosition(row.button.x, dockY + (compact ? 12 : 16)).setFontSize(12);
+      icon(id === 'RAIN' ? 'cookie-rain' : 'auto-clicker', row.button.x, dockY - 12, 23,
+        this.stage.status === 'RUNNING' && !this.modalShop);
+      this.icons.get(id === 'RAIN' ? 'cookie-rain' : 'auto-clicker')!.setDepth(12);
     });
-    const shopX = side ? width - 300 : compact ? 8 : 16;
-    const shopWidth = side ? 288 : compact ? width - 16 : width - 32;
-    const tabY = side ? 52 : compact ? 50 : RULES.hudHeight + 42;
+    this.warpButton.setPosition(centers[3], dockY).setSize(cellWidth, dockHeight - 12)
+      .setStrokeStyle(2, 0xfff6df);
+    this.warpButtonText.setPosition(centers[3], dockY + (compact ? 12 : 16)).setFontSize(12);
+    icon('time-warp', centers[3], dockY - 12, 23, !this.modalShop &&
+      (this.stage.status === 'RUNNING' || bossFight));
+    this.icons.get('time-warp')!.setDepth(12);
+
+    const shopX = sideShop ? frame.shop.x + 10 : 10;
+    const shopWidth = sideShop ? frame.shop.width - 20 : width - 20;
+    const tabY = compact ? 66 : sideShop ? 78 : 106;
+    const rowTop = tabY + 50;
+    this.shopBackground.setPosition(frame.shop.x, frame.shop.y).setSize(frame.shop.width, frame.shop.height)
+      .setFillStyle(0xfff6df, 0).setStrokeStyle(0).setVisible(visible);
+    this.shopArt.clear();
+    if (visible) {
+      if (!sideShop) this.shopArt.fillStyle(0x35251e, 0.92).fillRect(0, 0, width, height);
+      this.shopArt.fillStyle(0xfff6df).fillRoundedRect(frame.shop.x + 4, 4, frame.shop.width - 8, height - 8, 15)
+        .lineStyle(3, 0x845236).strokeRoundedRect(frame.shop.x + 4, 4, frame.shop.width - 8, height - 8, 15);
+    }
+    this.shopTitle.setPosition(shopX + 8, compact ? 12 : sideShop ? 20 : 32)
+      .setFontSize(compact ? 20 : 24).setVisible(visible);
+    this.shopWallet.setPosition(shopX + 8, compact ? 42 : sideShop ? 53 : 76)
+      .setFontSize(compact ? 12 : 14).setVisible(visible);
     this.shopTabs.forEach((tab, index) => {
-      tab.button.setPosition(shopX + index * shopWidth / 3, tabY)
-        .setSize(shopWidth / 3 - 2, 26).setVisible(visible)
-        .setFillStyle(this.shopTab === (index === 0 ? 'OFFENSE' : index === 1 ? 'DEFENSE' : 'SPECIAL') ? 0xe9ad63 : 0xe4d4b9);
-      tab.label.setPosition(tab.button.x + tab.button.width / 2, tabY + 5).setVisible(visible);
+      const selected = this.shopTab === (index === 0 ? 'OFFENSE' : index === 1 ? 'DEFENSE' : 'SPECIAL');
+      tab.button.setPosition(shopX + index * shopWidth / 3, tabY).setSize(shopWidth / 3 - 3, 44)
+        .setFillStyle(selected ? 0x6b3e29 : 0xf5e4bf).setStrokeStyle(2, 0x845236).setVisible(visible);
+      tab.label.setPosition(tab.button.x + tab.button.width / 2, tabY + 14)
+        .setFontSize(12).setColor(selected ? '#fff6df' : '#35251e').setVisible(visible);
       if (visible) tab.button.setInteractive({ useHandCursor: true });
       else tab.button.disableInteractive();
     });
     const ids: UpgradeId[] = this.shopTab === 'OFFENSE' ? UPGRADE_IDS.filter(id => id !== 'health' && id !== 'shield') :
       this.shopTab === 'DEFENSE' ? UPGRADE_IDS.filter(id => id === 'health' || id === 'shield') : [];
-    const rowTop = tabY + 34;
-    const rows = this.shopTab === 'OFFENSE' ? ids.length : this.shopTab === 'DEFENSE' ? ids.length + 1 : ABILITY_IDS.length;
-    const rowHeight = Math.min(70, Math.floor((height - rowTop - 4 * (rows - 1) - 8) / rows));
+    const total = this.shopTab === 'OFFENSE' ? ids.length : this.shopTab === 'DEFENSE' ? ids.length + 1 : ABILITY_IDS.length;
+    const pageSize = compact ? 3 : total;
+    const maxPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    this.shopPage = Math.min(this.shopPage, maxPage);
+    const rowHeight = compact ? 46 : Math.min(82, Math.floor((height - rowTop - 24 - (total - 1) * 8) / Math.max(total, 1)));
+    const rowY = (index: number) => rowTop + (index - this.shopPage * pageSize) * (rowHeight + 8);
+    const inPage = (index: number) => index >= this.shopPage * pageSize && index < (this.shopPage + 1) * pageSize;
     UPGRADE_IDS.forEach(id => {
       const row = this.shopRows.get(id)!;
       const index = ids.indexOf(id);
-      const rowVisible = visible && index >= 0;
-      if (index >= 0) row.button.setPosition(shopX, rowTop + index * (rowHeight + 4)).setSize(shopWidth, rowHeight);
-      row.button.setVisible(rowVisible);
-      row.label.setPosition(row.button.x + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(rowVisible);
-      if (rowVisible) row.button.setInteractive({ useHandCursor: true });
+      const show = visible && index >= 0 && inPage(index);
+      if (index >= 0) row.button.setPosition(shopX, rowY(index)).setSize(shopWidth, rowHeight);
+      row.button.setVisible(show);
+      row.label.setPosition(shopX + 46, row.button.y + (compact ? 5 : 13))
+        .setFontSize(compact ? 12 : 14).setVisible(show);
+      row.icon.setPosition(shopX + 23, row.button.y + rowHeight / 2).setDisplaySize(28, 28).setVisible(show);
+      row.badge.setPosition(shopX + shopWidth - 47, row.button.y + rowHeight / 2)
+        .setSize(86, compact ? 38 : 50).setVisible(show);
+      row.badgeText.setPosition(row.badge.x, row.badge.y).setFontSize(12).setVisible(show);
+      if (show && this.upgrades.cost(id) !== null && this.economy.balance >= this.upgrades.cost(id)!)
+        row.button.setInteractive({ useHandCursor: true });
       else row.button.disableInteractive();
     });
-    const warpVisible = visible && this.shopTab === 'DEFENSE';
-    this.warpBuyButton.setPosition(shopX, rowTop + ids.length * (rowHeight + 4))
-      .setSize(shopWidth, rowHeight).setVisible(warpVisible);
-    this.warpBuyLabel.setPosition(shopX + 10, this.warpBuyButton.y + 3)
-      .setFontSize(rowHeight < 54 ? 12 : 14).setVisible(warpVisible);
-    if (warpVisible) this.warpBuyButton.setInteractive({ useHandCursor: true });
+    const warpIndex = ids.length;
+    const warpVisible = visible && this.shopTab === 'DEFENSE' && inPage(warpIndex);
+    this.warpBuyButton.setPosition(shopX, rowY(warpIndex)).setSize(shopWidth, rowHeight).setVisible(warpVisible);
+    this.warpBuyLabel.setPosition(shopX + 46, this.warpBuyButton.y + (compact ? 5 : 13))
+      .setFontSize(compact ? 12 : 14).setVisible(warpVisible);
+    this.warpBuyIcon.setPosition(shopX + 23, this.warpBuyButton.y + rowHeight / 2)
+      .setDisplaySize(28, 28).setVisible(warpVisible);
+    this.warpBuyBadge.setPosition(shopX + shopWidth - 47, this.warpBuyButton.y + rowHeight / 2)
+      .setSize(86, compact ? 38 : 50).setVisible(warpVisible);
+    this.warpBuyBadgeText.setPosition(this.warpBuyBadge.x, this.warpBuyBadge.y)
+      .setFontSize(12).setVisible(warpVisible);
+    if (warpVisible && this.warp.charges < 3 && this.economy.balance >= timeWarpCost(this.stage.stageNumber))
+      this.warpBuyButton.setInteractive({ useHandCursor: true });
     else this.warpBuyButton.disableInteractive();
     ABILITY_IDS.forEach((id, index) => {
       const row = this.abilityBuyRows.get(id)!;
-      const rowVisible = visible && this.shopTab === 'SPECIAL';
-      row.button.setPosition(shopX, rowTop + index * (rowHeight + 4)).setSize(shopWidth, rowHeight).setVisible(rowVisible);
-      row.label.setPosition(shopX + 10, row.button.y + 3).setFontSize(rowHeight < 54 ? 12 : 14).setVisible(rowVisible);
-      if (rowVisible) row.button.setInteractive({ useHandCursor: true });
+      const show = visible && this.shopTab === 'SPECIAL' && inPage(index);
+      row.button.setPosition(shopX, rowY(index)).setSize(shopWidth, rowHeight).setVisible(show);
+      row.label.setPosition(shopX + 46, row.button.y + (compact ? 5 : 13))
+        .setFontSize(compact ? 12 : 14).setVisible(show);
+      row.icon.setPosition(shopX + 23, row.button.y + rowHeight / 2).setDisplaySize(28, 28).setVisible(show);
+      row.badge.setPosition(shopX + shopWidth - 47, row.button.y + rowHeight / 2)
+        .setSize(86, compact ? 38 : 50).setVisible(show);
+      row.badgeText.setPosition(row.badge.x, row.badge.y).setFontSize(12).setVisible(show);
+      if (show && this.abilities.charges(id) < 3 && this.economy.balance >= abilityCost(id, this.stage.stageNumber))
+        row.button.setInteractive({ useHandCursor: true });
       else row.button.disableInteractive();
     });
+    const pagerVisible = visible && compact && maxPage > 0;
+    const pagerY = height - 27;
+    this.shopPrev.setPosition(width / 2 - 70, pagerY).setVisible(pagerVisible);
+    this.shopNext.setPosition(width / 2 + 70, pagerY).setVisible(pagerVisible);
+    this.shopPrevText.setPosition(this.shopPrev.x, pagerY - 2).setVisible(pagerVisible);
+    this.shopNextText.setPosition(this.shopNext.x, pagerY - 2).setVisible(pagerVisible);
+    this.shopPager.setPosition(width / 2, pagerY).setText(`${this.shopPage + 1}/${maxPage + 1}`)
+      .setVisible(pagerVisible);
+    if (pagerVisible && this.shopPage > 0) this.shopPrev.setInteractive({ useHandCursor: true });
+    else this.shopPrev.disableInteractive();
+    if (pagerVisible && this.shopPage < maxPage) this.shopNext.setInteractive({ useHandCursor: true });
+    else this.shopNext.disableInteractive();
+    this.shopPrev.setFillStyle(this.shopPage > 0 ? 0x6b3e29 : 0xa79c8b);
+    this.shopNext.setFillStyle(this.shopPage < maxPage ? 0x6b3e29 : 0xa79c8b);
+    // Pager labels are independent of the card hitboxes.
+    this.shopPrev.setStrokeStyle(2, 0xfff6df);
+    this.shopNext.setStrokeStyle(2, 0xfff6df);
     if (visible) this.shopBackground.setInteractive();
     else this.shopBackground.disableInteractive();
-    if (!side && !bossFight) this.toggleButton.setInteractive({ useHandCursor: true });
-    else this.toggleButton.disableInteractive();
     this.updateWarpButton();
     this.updateAbilityButtons();
     this.layoutBoss();
@@ -735,22 +895,25 @@ class GameScene extends Phaser.Scene {
   }
 
   private layoutTerminal() {
-    const side = this.sideShop;
-    const width = side ? this.scale.width - 312 : this.scale.width;
-    const height = side ? this.scale.height : this.scale.height - 72;
+    const frame = calculateGameLayout(this.scale.width, this.scale.height, false);
+    const width = frame.fieldRight;
+    const height = this.scale.height - frame.dockHeight;
     const visible = (this.stage.status === 'COMPLETED' || this.stage.status === 'FAILED') && !this.modalShop;
     const cycleComplete = this.stage.status === 'COMPLETED' && this.stage.cycle.stageInCycle === 12;
     const result = cycleComplete ? `${kingdomName(this.stage.cycle.cycleNumber).toUpperCase()} COMPLETE` :
       this.stage.status === 'COMPLETED' ? 'STAGE COMPLETED' :
         this.stage.failureReason === 'HEALTH_DEPLETED' ? 'OUT OF HEALTH' : 'TIME UP';
-    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}\nEarned ${formatAmount(this.stage.currencyEarned)} Cookies`;
-    this.terminalBackground.setSize(width, height).setVisible(visible);
-    this.terminalText.setPosition(width / 2, height / 2 - 35)
-      .setFontSize(this.scale.height < 420 ? 14 : 19).setLineSpacing(this.scale.height < 420 ? 3 : 8)
+    const summary = `${formatAmount(this.stage.progress)} / ${formatAmount(this.stage.target)} SP · Tough ${this.stage.toughDestroyed}/${this.stage.toughRequired}\n+${formatAmount(this.stage.currencyEarned)} Cookies earned`;
+    this.terminalBackground.setPosition(0, 0).setSize(width, height).setFillStyle(0x35251e, 0.94)
+      .setVisible(visible);
+    this.terminalText.setPosition(width / 2, frame.compact ? 93 : height / 2 - 30)
+      .setFontSize(frame.compact ? 13 : 18).setLineSpacing(frame.compact ? 2 : 8)
       .setText(`${result}\nStage ${this.stage.stageNumber}${this.lastBossName ? ` · ${this.lastBossName}` : ''}\n${summary}${this.lastBossBonus ? `\nBoss bonus: ${formatAmount(this.lastBossBonus)}` : ''}${this.lastFreeAbility ? `\nFree ${ABILITIES[this.lastFreeAbility].name} charge` : ''}${cycleComplete ? `\nClick Power limit: ${this.upgrades.powerLimit}` : ''}`)
       .setVisible(visible);
-    this.terminalButton.setPosition(width / 2, height / 2 + 66).setSize(Math.min(190, width - 36), 48).setVisible(visible);
-    this.terminalButtonText.setPosition(width / 2, height / 2 + 66)
+    this.terminalButton.setPosition(width / 2, height - (frame.compact ? 30 : 64))
+      .setSize(Math.min(190, width - 36), 48).setFillStyle(0x236451).setStrokeStyle(2, 0xfff6df)
+      .setVisible(visible);
+    this.terminalButtonText.setPosition(this.terminalButton.x, this.terminalButton.y).setColor('#fff6df')
       .setText(this.stage.status === 'COMPLETED' ? 'CONTINUE' : 'RETRY').setVisible(visible);
     if (visible) this.terminalButton.setInteractive({ useHandCursor: true });
     else this.terminalButton.disableInteractive();
