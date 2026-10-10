@@ -111,7 +111,7 @@ export class SpawnManager {
   }
 
   spawn(bounds: Bounds, now: number, radius: number = RULES.radius, area = defaultArea(bounds),
-    options: { goldenChanceBp?: number; forcedType?: CookieType; hardHp?: number;
+    options: { goldenChanceBp?: number; forcedType?: CookieType; excludeBomb?: boolean; hardHp?: number;
       stageNumber?: number; toughNeeded?: boolean } = {}): Cookie | undefined {
     const stageNumber = options.stageNumber ?? 1;
     const { cycleIndex } = cycleForStage(stageNumber);
@@ -121,6 +121,7 @@ export class SpawnManager {
     const position = this.position(radius, area, [...this.active.values()]);
     if (!position) return;
     let type = options.forcedType ?? selectCookieType(Math.floor(this.random() * 10_000), options.goldenChanceBp, stageNumber);
+    if (options.excludeBomb && type === 'BOMB') type = 'NORMAL';
     if (options.toughNeeded && this.nonToughSpawns >= 6 && !COOKIE_TYPES[type].tough) {
       const unlocked: CookieType[] = stageNumber < 4 ? ['HARD'] : stageNumber < 9 ? ['HARD', 'REINFORCED'] :
         ['HARD', 'REINFORCED', 'TITAN'];
