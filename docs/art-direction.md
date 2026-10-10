@@ -1,6 +1,6 @@
 # Cookie Chaos · Checkpoint A — art direction
 
-**Status:** proposta da approvare. I mockup sono statici: non sostituiscono la UI Phaser, non cambiano regole, dimensioni logiche, asset o hitbox. Le cifre nelle scene rappresentano uno stato illustrativo, non una nuova configurazione di gameplay.
+**Status:** Checkpoint A approvato; Checkpoint B in revisione. I mockup sono statici: non sostituiscono la UI Phaser, non cambiano regole, dimensioni logiche, asset o hitbox. Le cifre nelle scene rappresentano uno stato illustrativo, non una nuova configurazione di gameplay.
 
 ## 1. Visione
 
@@ -161,4 +161,15 @@ I quattro PNG sono screenshot effettivi della preview acquisiti con Chrome headl
 4. Confermare font di sistema offline o chiedere un font locale specifico con licenza da integrare più avanti.
 5. Confermare se il dock abilità deve mostrare sempre le cariche a 390×844 o collassarsi quando non disponibili.
 
-**Nessuna scelta modifica le meccaniche M1–M9.** B, C, D ed E sono fermi in attesa della revisione di A.
+**Nessuna scelta modifica le meccaniche M1–M9.** Le scelte di A sono state approvate; C, D ed E restano fermi durante B.
+
+## 15. Checkpoint B — correzioni della review A e asset
+
+- Mockup Knight corretto: con scudo `5/12`, corpo `22/22 HP` e barra corpo piena. La protezione assorbe interamente i colpi finché è attiva.
+- Hard distingue ora la propria sagoma dal Normal con bordo angolare spezzato, crosta più scura e fenditure grandi. Normal mantiene bordo morbido e gocce riconoscibili.
+- Golden usa corona a punte morbide e medaglione/stella; Titan usa ottagono con piastre; Bomb usa miccia e grande `!`. Sagoma e segno restano leggibili senza colore.
+- Le sei texture cookie mantengono `viewBox="0 0 96 96"`. I boss mantengono `viewBox="0 0 128 128"`. Rasterizzate a 4×, le sagome occupano raggi 47,0–47,5 px e 59,2–59,9 px: restano entro le hitbox circolari di raggio 48 e 60, con tolleranza touch inferiore a 1 px per i cookie. Raggi logici, scala, `SpawnManager`, input e regole restano invariati.
+- Le texture di fase aggiunte sono `boss-barbarian-exposed.svg`, `boss-knight-exposed.svg` e `boss-berserker-rage.svg`. Il gioco cambia soltanto texture quando il modello segnala una fase; `boss-cookieng-golden.svg` conserva la propria chiave. Il guard dello scudo Knight è reso leggero e spostato sullo scudo illustrato, per non nascondere il viso.
+- `kingdom-background.svg` e `boss-arena.svg` hanno `viewBox="0 0 1280 720"`; Phaser li scala con modalità cover, senza stirarli. Le decorazioni hanno basso contrasto e restano dietro ai GameObjects interattivi.
+- `public/icons/` contiene 12 SVG da 48×48, pronti per l'HUD del checkpoint C. Non sono ancora caricati né mostrati nella UI di produzione.
+- SVG locali validati come XML, senza font, filtri, script o dipendenze remote. Dimensione totale dei 29 SVG: **22.757 byte**; il set precedente era **10.118 byte** in 12 file. Incremento degli asset sorgente: **12.639 byte**. Lo sfondo rasterizzato occupa memoria GPU; la verifica prestazionale completa è riservata al checkpoint E.

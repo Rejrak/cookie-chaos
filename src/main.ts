@@ -22,6 +22,7 @@ class GameScene extends Phaser.Scene {
   private abilities = new AbilityManager();
   private boss: BossManager | null = null;
   private bossAttack: BossAttackController | null = null;
+  private background!: Phaser.GameObjects.Image;
   private bossSprite?: Phaser.GameObjects.Image;
   private parryTarget!: Phaser.GameObjects.Arc;
   private parryLabel!: Phaser.GameObjects.Text;
@@ -84,14 +85,19 @@ class GameScene extends Phaser.Scene {
   constructor() { super('game'); }
 
   preload() {
+    this.load.svg('kingdom-background', '/kingdom-background.svg', { width: 1280, height: 720 });
+    this.load.svg('boss-arena', '/boss-arena.svg', { width: 1280, height: 720 });
     for (const type of Object.values(COOKIE_TYPES)) this.load.svg(type.texture, type.asset, { width: 96, height: 96 });
     this.load.svg('hard-cracks', '/hard-cracks.svg', { width: 96, height: 96 });
     for (const boss of Object.values(BOSSES)) this.load.svg(boss.texture, `/${boss.texture}.svg`, { width: 128, height: 128 });
     this.load.svg('boss-cookieng-golden', '/boss-cookieng-golden.svg', { width: 128, height: 128 });
+    for (const variant of ['boss-barbarian-exposed', 'boss-knight-exposed', 'boss-berserker-rage'])
+      this.load.svg(variant, `/${variant}.svg`, { width: 128, height: 128 });
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#fff2d4');
+    this.background = this.add.image(0, 0, 'kingdom-background').setDepth(-10);
     const heading = { fontFamily: 'system-ui, sans-serif', fontStyle: 'bold', color: '#713b20' };
     this.titleText = this.add.text(20, 6, 'Cookie Chaos', { ...heading, fontSize: '26px' }).setDepth(2);
     this.balanceText = this.add.text(20, 37, '', { ...heading, fontSize: '20px' }).setDepth(2);
@@ -375,7 +381,7 @@ class GameScene extends Phaser.Scene {
     if (this.boss.config.id === 'barbarian') {
       this.bossGuard = this.add.circle(0, 0, 57).setStrokeStyle(5, 0x8a6e58).setDepth(1);
     } else if (this.boss.config.id === 'knight') {
-      this.bossGuard = this.add.ellipse(0, 0, 84, 72, 0x8299ae, 0.94).setStrokeStyle(4, 0x4f6170).setDepth(3);
+      this.bossGuard = this.add.ellipse(0, 0, 36, 50, 0xdde6e6, 0.28).setStrokeStyle(2, 0x4f6170).setDepth(3);
     }
     this.shownSeconds = -1;
     this.updateHud();
@@ -396,7 +402,9 @@ class GameScene extends Phaser.Scene {
       this.bossGuard?.destroy();
       this.bossGuard = undefined;
       if (hit.phase === 'GOLDEN') this.bossSprite.setTexture('boss-cookieng-golden');
-      if (hit.phase === 'RAGE') this.bossSprite.setTint(0xff8585);
+      if (hit.phase === 'VULNERABLE') this.bossSprite.setTexture('boss-barbarian-exposed');
+      if (hit.phase === 'BODY' && this.boss.config.id === 'knight') this.bossSprite.setTexture('boss-knight-exposed');
+      if (hit.phase === 'RAGE') this.bossSprite.setTexture('boss-berserker-rage');
       if (this.scale.height >= 480) this.floatText({ x: position.x, y: position.y - 36 },
         hit.phase === 'VULNERABLE' ? 'ARMOR BROKEN · 2×' : hit.phase === 'GOLDEN' ? 'GOLDEN FORM' :
           hit.phase === 'RAGE' ? 'RAGE!' : hit.phase === 'BODY' && this.boss.config.id === 'barbarian' ?
@@ -423,7 +431,8 @@ class GameScene extends Phaser.Scene {
     const y = (RULES.hudHeight + bottom) / 2;
     this.bossSprite.setPosition(x, y).setScale(radius / 60);
     if (this.bossGuard) {
-      this.bossGuard.setPosition(x, this.boss.config.id === 'knight' ? y + radius * 0.25 : y).setScale(radius / 60);
+      this.bossGuard.setPosition(this.boss.config.id === 'knight' ? x + radius * 0.48 : x,
+        this.boss.config.id === 'knight' ? y + radius * 0.25 : y).setScale(radius / 60);
     }
     const parryX = Math.max(30, x - radius - 34);
     this.parryTarget.setPosition(parryX, y);
@@ -624,6 +633,8 @@ class GameScene extends Phaser.Scene {
     const height = this.scale.height;
     const side = this.sideShop;
     const bossFight = this.stage.status === 'BOSS_FIGHT';
+    this.background.setTexture(bossFight ? 'boss-arena' : 'kingdom-background')
+      .setPosition(width / 2, height / 2).setScale(Math.max(width / 1280, height / 720));
     const playRight = bossFight ? width : side ? width - 312 : width;
     const compact = !side && height < 420;
     const visible = (side || this.shopOpen) && !bossFight;

@@ -7,6 +7,8 @@
   <path d="M29 55L47 61M99 55L81 61" stroke="#5b312a" stroke-width="6" stroke-linecap="round"/>
   <path d="M45 72L54 67L61 72L54 77ZM67 72L74 67L83 72L74 77Z" fill="#fff0cb" stroke="#46312a" stroke-width="2"/>
   <path d="M49 92Q64 80 79 92" fill="none" stroke="#55322b" stroke-width="5" stroke-linecap="round"/>
-  <path d="M29 77L40 84L34 97M87 84L100 74L94 97" fill="none" stroke="#f5bb84" stroke-width="4" stroke-linecap="round"/>  <circle cx="54" cy="72" r="3" fill="#9f3437"/><circle cx="74" cy="72" r="3" fill="#9f3437"/>
+  <path d="M29 77L40 84L34 97M87 84L100 74L94 97" fill="none" stroke="#f5bb84" stroke-width="4" stroke-linecap="round"/>  <circle cx="54" cy="72" r="4" fill="#9f3437"/><circle cx="74" cy="72" r="4" fill="#9f3437"/>
+  <path d="M21 60L34 65M94 64L107 58M47 104L53 111M75 106L82 111" stroke="#9f3437" stroke-width="5" stroke-linecap="round"/>
+  <path d="M45 81L39 91M83 81L89 91" stroke="#f2cf9b" stroke-width="3" stroke-linecap="round"/>
   </g>
 </svg>
