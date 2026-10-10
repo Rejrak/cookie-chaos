@@ -19,6 +19,7 @@ export const COOKIE_TYPES = {
   GOLDEN: { hp: 1, multiplier: 5n, stagePoints: 5n, tough: false, weightBp: 500, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
   REINFORCED: { hp: 5, multiplier: 8n, stagePoints: 5n, tough: true, weightBp: 1000, texture: 'reinforced-cookie', asset: '/reinforced-cookie.svg' },
   TITAN: { hp: 9, multiplier: 14n, stagePoints: 8n, tough: true, weightBp: 500, texture: 'titan-cookie', asset: '/titan-cookie.svg' },
+  BOMB: { hp: 1, multiplier: 0n, stagePoints: 0n, tough: false, weightBp: 500, texture: 'bomb-cookie', asset: '/bomb-cookie.svg' },
 } as const;
 
 export type CookieType = keyof typeof COOKIE_TYPES;
@@ -30,7 +31,18 @@ export type Bounds = { width: number; height: number };
 export type PlayArea = { left: number; top: number; right: number; bottom: number };
 
 export function cookieReward(cookie: Cookie, baseReward: bigint): bigint {
+  if (cookie.type === 'BOMB') return 0n;
   return baseReward * cookie.rewardMultiplier;
+}
+
+export function bombChanceBp(stageNumber: number): number {
+  cycleForStage(stageNumber);
+  return stageNumber < 4 ? 0 : stageNumber < 13 ? 500 : stageNumber < 25 ? 800 : 1000;
+}
+
+export function maxActiveBombs(stageNumber: number): number {
+  cycleForStage(stageNumber);
+  return stageNumber < 4 ? 0 : stageNumber < 25 ? 1 : 2;
 }
 
 export function cookieProbabilities(goldenBp: number = COOKIE_TYPES.GOLDEN.weightBp, stageNumber = 1) {
@@ -39,8 +51,9 @@ export function cookieProbabilities(goldenBp: number = COOKIE_TYPES.GOLDEN.weigh
   const reinforced = stageNumber >= 4 ? COOKIE_TYPES.REINFORCED.weightBp : 0;
   const titan = stageNumber >= 9 ? COOKIE_TYPES.TITAN.weightBp : 0;
   const hard = COOKIE_TYPES.HARD.weightBp;
-  return { NORMAL: 10_000 - hard - goldenBp - reinforced - titan, HARD: hard,
-    GOLDEN: goldenBp, REINFORCED: reinforced, TITAN: titan };
+  const bomb = bombChanceBp(stageNumber);
+  return { NORMAL: 10_000 - hard - goldenBp - reinforced - titan - bomb, HARD: hard,
+    GOLDEN: goldenBp, REINFORCED: reinforced, TITAN: titan, BOMB: bomb };
 }
 
 export function selectCookieType(roll: number, goldenBp: number = COOKIE_TYPES.GOLDEN.weightBp,
@@ -51,7 +64,8 @@ export function selectCookieType(roll: number, goldenBp: number = COOKIE_TYPES.G
   if (roll < chances.NORMAL + chances.HARD) return 'HARD';
   if (roll < chances.NORMAL + chances.HARD + chances.GOLDEN) return 'GOLDEN';
   if (roll < chances.NORMAL + chances.HARD + chances.GOLDEN + chances.REINFORCED) return 'REINFORCED';
-  return 'TITAN';
+  if (roll < chances.NORMAL + chances.HARD + chances.GOLDEN + chances.REINFORCED + chances.TITAN) return 'TITAN';
+  return 'BOMB';
 }
 
 export function advanceGameTime(now: number, delta: number, paused: boolean): number {
@@ -112,18 +126,23 @@ export class SpawnManager {
         ['HARD', 'REINFORCED', 'TITAN'];
       type = unlocked[Math.floor(this.random() * unlocked.length)];
     }
-    if ((type === 'REINFORCED' && stageNumber < 4) || (type === 'TITAN' && stageNumber < 9)) {
+    if ((type === 'REINFORCED' && stageNumber < 4) || (type === 'TITAN' && stageNumber < 9) ||
+      (type === 'BOMB' && stageNumber < 4)) {
       throw new RangeError('Cookie type locked');
+    }
+    if (type === 'BOMB' && [...this.active.values()].filter(cookie => cookie.type === 'BOMB').length >= maxActiveBombs(stageNumber)) {
+      type = 'NORMAL';
     }
     const definition = COOKIE_TYPES[type];
     const hp = type === 'HARD' ? hardHp : type === 'REINFORCED' ? 5 + cycleIndex :
       type === 'TITAN' ? 9 + 2 * cycleIndex : definition.hp;
     if (!Number.isSafeInteger(hp)) throw new RangeError('Cookie HP exceeds safe integer');
     const cookie = { id: this.nextId++, type, ...position, radius, hp, maxHp: hp,
-      expiresAt: now + RULES.lifetimeMs, rewardMultiplier: definition.multiplier,
+      expiresAt: now + (type === 'BOMB' ? 5000 : RULES.lifetimeMs), rewardMultiplier: definition.multiplier,
       stagePoints: definition.stagePoints, tough: definition.tough };
     this.active.set(cookie.id, cookie);
-    this.nonToughSpawns = options.toughNeeded && !cookie.tough ? this.nonToughSpawns + 1 : 0;
+    this.nonToughSpawns = !options.toughNeeded || cookie.tough ? 0 :
+      cookie.type === 'BOMB' ? this.nonToughSpawns : this.nonToughSpawns + 1;
     return cookie;
   }
 
