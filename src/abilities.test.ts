@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AbilityManager, abilityCost, autoTarget } from './abilities';
+import { AbilityManager, abilityCost, autoTarget, freeAbilityForBossStage } from './abilities';
 import { Economy } from './economy';
 import type { Cookie } from './game';
 
@@ -53,5 +53,8 @@ describe('AbilityManager', () => {
         stagePoints: 1n, tough: type === 'HARD' });
     expect(autoTarget([cookie(1, 'NORMAL', 1), cookie(2, 'BOMB', 0), cookie(4, 'HARD', 9), cookie(3, 'HARD', 9)])?.id).toBe(3);
     expect(autoTarget([cookie(2, 'BOMB', 0)])).toBeUndefined();
+    expect(autoTarget([cookie(1, 'HARD', 4)], 4)).toBeUndefined();
+    expect([3, 6, 9, 12, 15, 18].map(freeAbilityForBossStage))
+      .toEqual(['RAIN', 'AUTO', undefined, undefined, 'RAIN', 'AUTO']);
   });
 });

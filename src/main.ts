@@ -9,6 +9,7 @@ import { StageManager } from './stage';
 import { UPGRADES, UPGRADE_IDS, UpgradeManager, type UpgradeId } from './upgrades';
 import { hardHpForStage, kingdomName } from './cycle';
 import { TimeWarp, timeWarpCost } from './time-warp';
+import { AbilityManager, autoTarget, freeAbilityForBossStage } from './abilities';
 import './style.css';
 
 class GameScene extends Phaser.Scene {
@@ -18,6 +19,7 @@ class GameScene extends Phaser.Scene {
   private stage = new StageManager();
   private health = new HealthManager();
   private warp = new TimeWarp();
+  private abilities = new AbilityManager();
   private boss: BossManager | null = null;
   private bossAttack: BossAttackController | null = null;
   private bossSprite?: Phaser.GameObjects.Image;
@@ -149,11 +151,12 @@ class GameScene extends Phaser.Scene {
       this.clearCookies();
       this.clearEffects();
       this.clearBoss();
+      this.abilities.endStage();
     });
   }
 
   update(_time: number, delta: number) {
-    if (this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
+    if (document.hidden || this.modalShop || (this.stage.status !== 'RUNNING' && this.stage.status !== 'BOSS_FIGHT')) return;
     let remaining = delta;
     do {
       const step = Math.min(remaining, 100, this.stage.remainingMs);
@@ -177,6 +180,12 @@ class GameScene extends Phaser.Scene {
           if (result) this.showDamage(result, 1, cookie.x, cookie.y);
           if (this.health.isDead) return;
         }
+        const pulses = this.abilities.tick(step, this.upgrades.spawnMs);
+        for (let i = 0; i < pulses.rain && this.stage.status === 'RUNNING'; i++) this.addCookie(false, true);
+        for (let i = 0; i < pulses.auto && this.stage.status === 'RUNNING'; i++) {
+          const target = autoTarget(this.model.active.values(), this.warp.threatNow);
+          if (target) this.hitCookie(target.id);
+        }
       }
       remaining -= step;
     } while (remaining > 0);
@@ -190,13 +199,13 @@ class GameScene extends Phaser.Scene {
       bottom: this.sideShop ? this.scale.height : this.scale.height - 72 };
   }
 
-  private addCookie(first = false) {
-    if (this.modalShop || this.stage.status !== 'RUNNING') return;
+  private addCookie(first = false, bonus = false) {
+    if (document.hidden || this.modalShop || this.stage.status !== 'RUNNING') return;
     const cookie = this.model.spawn({ width: this.scale.width, height: this.scale.height }, this.warp.threatNow,
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
         stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
         toughNeeded: this.stage.toughDestroyed < this.stage.toughRequired,
-        forcedType: first ? 'NORMAL' : undefined });
+        forcedType: first ? 'NORMAL' : undefined, excludeBomb: bonus });
     if (cookie) this.drawCookie(cookie);
   }
 
@@ -208,16 +217,25 @@ class GameScene extends Phaser.Scene {
       this.updateCracks(cookie);
     }
     sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
-    sprite.on(Phaser.Input.Events.POINTER_DOWN, () => {
+    sprite.on(Phaser.Input.Events.POINTER_DOWN, () => this.hitCookie(cookie.id));
+    this.sprites.set(cookie.id, sprite);
+    this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1,
+      duration: this.reducedMotion ? 0 : 180 });
+  }
+
+  private hitCookie(id: number) {
+    const cookie = this.model.active.get(id);
+    const sprite = this.sprites.get(id);
+    if (!cookie || !sprite || this.modalShop) return;
       if (cookie.type === 'BOMB') {
-        const result = applyBombHit(this.model, this.health, this.stage, cookie.id, this.gameplayNow, this.modalShop);
+        const result = applyBombHit(this.model, this.health, this.stage, id, this.gameplayNow, this.modalShop);
         if (!result) return;
-        this.removeCookie(cookie.id);
+        this.removeCookie(id);
         this.floatText(cookie, 'BOOM!', '#bd3527');
         this.showDamage(result, 1, cookie.x, cookie.y);
         return;
       }
-      const hit = applyCookieHit(this.model, this.economy, this.stage, cookie.id, this.upgrades.damage, this.upgrades.reward);
+      const hit = applyCookieHit(this.model, this.economy, this.stage, id, this.upgrades.damage, this.upgrades.reward);
       if (!hit) return;
       this.updateHud();
       if (!hit.destroyed) {
@@ -242,10 +260,6 @@ class GameScene extends Phaser.Scene {
       }
       if (this.stage.status === 'BOSS_FIGHT') this.enterBossFight();
       else if (this.stage.status === 'COMPLETED') this.finishStage();
-    });
-    this.sprites.set(cookie.id, sprite);
-    this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1,
-      duration: this.reducedMotion ? 0 : 180 });
   }
 
   private floatText(cookie: { x: number; y: number }, value: string, color: string) {
@@ -302,6 +316,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private enterBossFight() {
+    this.abilities.endStage();
     this.spawnTimer.paused = true;
     this.clearCookies();
     this.clearEffects();
@@ -343,6 +358,8 @@ class GameScene extends Phaser.Scene {
     this.updateHud();
     this.renderAttack();
     if (hit.defeated) {
+      const free = freeAbilityForBossStage(this.stage.stageNumber);
+      if (free) this.abilities.grant(free, `boss:${this.stage.stageNumber}`);
       this.lastBossName = this.boss.config.name;
       this.lastBossBonus = hit.reward!;
       if (!this.reducedMotion) this.cameras.main.flash(220, 255, 213, 108);
@@ -385,6 +402,7 @@ class GameScene extends Phaser.Scene {
 
   private finishStage() {
     this.warp.endStage();
+    this.abilities.endStage();
     this.upgrades.unlockThroughStage(this.stage.maxCompletedStage);
     this.spawnTimer.paused = true;
     this.clearCookies();

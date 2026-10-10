@@ -1,5 +1,6 @@
 import { Economy } from './economy';
 import type { Cookie } from './game';
+import { cycleForStage } from './cycle';
 
 export const ABILITIES = {
   RAIN: { name: 'Cookie Rain', durationMs: 12_000, baseCost: 110n, stageCost: 4n },
@@ -14,8 +15,13 @@ export function abilityCost(id: AbilityId, stageNumber: number): bigint {
   return ABILITIES[id].baseCost + ABILITIES[id].stageCost * BigInt(stageNumber);
 }
 
-export function autoTarget(cookies: Iterable<Cookie>): Cookie | undefined {
-  return [...cookies].filter(cookie => cookie.type !== 'BOMB' && cookie.hp > 0)
+export function freeAbilityForBossStage(stageNumber: number): AbilityId | undefined {
+  const stage = cycleForStage(stageNumber).stageInCycle;
+  return stage === 3 ? 'RAIN' : stage === 6 ? 'AUTO' : undefined;
+}
+
+export function autoTarget(cookies: Iterable<Cookie>, now = -Infinity): Cookie | undefined {
+  return [...cookies].filter(cookie => cookie.type !== 'BOMB' && cookie.hp > 0 && cookie.expiresAt > now)
     .sort((a, b) => Number(b.tough) - Number(a.tough) || a.expiresAt - b.expiresAt || a.id - b.id)[0];
 }
 
