@@ -70,6 +70,7 @@ class GameScene extends Phaser.Scene {
   private warpButton!: Phaser.GameObjects.Rectangle;
   private warpButtonText!: Phaser.GameObjects.Text;
   private statsText!: Phaser.GameObjects.Text;
+  private bombText!: Phaser.GameObjects.Text;
   private stageText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private progressText!: Phaser.GameObjects.Text;
@@ -147,6 +148,8 @@ class GameScene extends Phaser.Scene {
     this.progressBack = this.add.rectangle(20, 107, 1, 10, 0xd6b88a).setOrigin(0).setDepth(2);
     this.progressFill = this.add.rectangle(20, 107, 1, 10, 0xc97831).setOrigin(0).setDepth(3);
     this.statsText = this.add.text(350, 16, '', { fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#713b20' }).setDepth(2);
+    this.bombText = this.add.text(0, 0, 'BOMB!', { fontFamily: 'system-ui, sans-serif',
+      fontSize: '13px', fontStyle: 'bold', color: '#392f3c' }).setDepth(2).setVisible(false);
     this.bossPanel = this.add.rectangle(0, 0, 1, 72, 0xffe5b6).setOrigin(0).setDepth(1);
     this.bossStatusText = this.add.text(20, 0, '', { ...heading, fontSize: '16px' }).setDepth(2);
     this.bossProtectionText = this.add.text(20, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: '#713b20' }).setDepth(2);
@@ -326,6 +329,7 @@ class GameScene extends Phaser.Scene {
     sprite.setInteractive(new Phaser.Geom.Circle(48, 48, COOKIE_SOURCE_RADIUS), Phaser.Geom.Circle.Contains);
     sprite.on(Phaser.Input.Events.POINTER_DOWN, () => this.hitCookie(cookie.id));
     this.sprites.set(cookie.id, sprite);
+    this.updateBombNotice();
     this.tweens.add({ targets: sprite, scale: cookie.radius / COOKIE_SOURCE_RADIUS, alpha: 1,
       duration: this.reducedMotion ? 0 : 180 });
   }
@@ -398,11 +402,13 @@ class GameScene extends Phaser.Scene {
     this.sprites.delete(id);
     this.cracks.get(id)?.destroy();
     this.cracks.delete(id);
+    this.updateBombNotice();
   }
 
   private clearCookies() {
     for (const id of this.sprites.keys()) this.removeCookie(id);
     this.model.active.clear();
+    this.updateBombNotice();
   }
 
   private clearEffects() {
@@ -645,6 +651,16 @@ class GameScene extends Phaser.Scene {
       else row.button.disableInteractive();
     }
     this.updateAbilityButtons();
+    this.updateBombNotice();
+  }
+
+  private updateBombNotice() {
+    if (!this.icons.size || !this.bombText) return;
+    const frame = calculateGameLayout(this.scale.width, this.scale.height, this.stage.status === 'BOSS_FIGHT');
+    const visible = this.stage.status === 'RUNNING' && [...this.model.active.values()].some(cookie => cookie.type === 'BOMB');
+    this.icons.get('bomb')!.setPosition(frame.compact ? frame.fieldRight / 2 : frame.fieldRight - 91,
+      frame.compact ? 15 : 78).setDisplaySize(21, 21).setVisible(visible);
+    this.bombText.setPosition(frame.fieldRight - 74, 70).setVisible(visible && !frame.compact);
   }
 
   private updateAbilityButtons() {
@@ -746,7 +762,7 @@ class GameScene extends Phaser.Scene {
     icon('currency', 22, 78, 22, !compact);
     icon('stage-points', 22, 102, 20, !compact);
     icon('tough', 21, 131, 20, !!this.toughText.text && !compact && !bossFight);
-    icon('bomb', 0, 0, 1, false);
+    this.updateBombNotice();
 
     this.bossPanel.setPosition(0, playArea.bottom).setSize(fieldRight, frame.bossPanelHeight)
       .setFillStyle(0xfff6df).setStrokeStyle(2, 0x845236).setVisible(bossFight);

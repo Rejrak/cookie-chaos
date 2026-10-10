@@ -21,7 +21,7 @@ La pagina compatta usa i pulsanti 44×44 per scorrere le card. Shop nascosto, ca
 Catture Chrome headless, DPR 1, dal gioco Vite. Gli stati avanzati sono stati raggiunti con un hook temporaneo solo DEV, rimosso prima del commit; le immagini non rappresentano una partita umana completa.
 
 - Gameplay: [320×320](screenshots/gameplay-320x320.png), [360×640](screenshots/gameplay-360x640.png), [390×844](screenshots/gameplay-390x844.png), [568×320](screenshots/gameplay-568x320.png), [1280×720](screenshots/gameplay-1280x720.png).
-- Raccolta con [sei tipi](screenshots/collection-multiple-390x844.png), inclusa Bomb; [bomba nello stage 4](screenshots/bomb-gameplay-390x844.png).
+- Raccolta con [sei tipi](screenshots/collection-multiple-390x844.png), inclusa Bomb; bomba e indicatore HUD nello stage 4 a [390×844](screenshots/bomb-gameplay-390x844.png) e [320×320](screenshots/bomb-gameplay-320x320.png).
 - Shop: [OFFENSE 390](screenshots/shop-offense-390x844.png), [DEFENSE 390](screenshots/shop-defense-390x844.png), [SPECIAL 390](screenshots/shop-special-390x844.png), [BUY con fondi](screenshots/shop-buy-390x844.png), [OFFENSE 320](screenshots/shop-offense-320x320.png), [pagina 2 a 320](screenshots/shop-offense-page2-320x320.png), [OFFENSE 568](screenshots/shop-offense-568x320.png).
 - Boss: [Knight 390](screenshots/boss-knight-390x844.png), [parry Knight 390](screenshots/boss-parry-now-390x844.png), [Barbarian 568](screenshots/boss-barbarian-568x320.png), [warning 568](screenshots/boss-warning-568x320.png), [parry 568](screenshots/boss-parry-568x320.png).
 - [Dock attivo](screenshots/ability-active-390x844.png), [vittoria 390](screenshots/victory-390x844.png), [fallimento 390](screenshots/failure-390x844.png), [vittoria 320](screenshots/victory-320x320.png), [fallimento 320](screenshots/failure-320x320.png).
@@ -32,6 +32,7 @@ Catture Chrome headless, DPR 1, dal gioco Vite. Gli stati avanzati sono stati ra
 - Shop mobile: clock stage invariato durante 500 ms di apertura, sprite senza input; alla chiusura il tempo riprende. A 320 il click su pagina successiva mostra Power/Luck e nasconde le card precedenti; chiusura ripristina il cookie.
 - Acquisti reali nelle tre schede: Value `0 → 1`, Health `0 → 1`, Rain `0 → 1` da saldo di test 1000, saldo finale 832. Con saldo zero, il pulsante è disabilitato e non spende. Auto e Warp comprati e attivati; le due durate e il timer stage restano fermi nello shop modale.
 - Bomb allo stage 4: click elimina la bomba, HP `5 → 4`, nessuna valuta o SP. Resize `390 → 320` conserva ID e scadenza del cookie; con shop aperto `320 → 568` resta modale e il cookie resta nascosto.
+- L'icona Bomb appare mentre esiste una bomba attiva e scompare dopo il click; a 320 è compattata senza coprire stage, timer o Tough.
 - Boss: click sul Knight riduce scudo `12 → 11`, corpo resta `22/22`; parry valida porta l'attacco a `RESOLVED` senza perdere HP. Barbarian senza parry perde un HP `5 → 4`. Il bersaglio non copre il boss.
 - Continue avvia Stage 2 con un cookie; Retry riavvia Stage 2 con un cookie. Nessuna eccezione JavaScript o errore console nei percorsi acquisiti.
 
