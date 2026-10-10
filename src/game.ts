@@ -2,7 +2,7 @@ import { cycleForStage } from './cycle';
 
 export const RULES = {
   spawnMs: 1500,
-  lifetimeMs: 8000,
+  lifetimeMs: 3000,
   maxCookies: 7,
   radius: 40,
   gap: 12,
@@ -14,17 +14,18 @@ export const RULES = {
 export const COOKIE_SOURCE_RADIUS = 48;
 
 export const COOKIE_TYPES = {
-  NORMAL: { hp: 1, multiplier: 1n, stagePoints: 1n, tough: false, weightBp: 8000, texture: 'cookie', asset: '/cookie.svg' },
-  HARD: { hp: 3, multiplier: 6n, stagePoints: 3n, tough: true, weightBp: 1500, texture: 'hard-cookie', asset: '/hard-cookie.svg' },
-  GOLDEN: { hp: 1, multiplier: 5n, stagePoints: 5n, tough: false, weightBp: 500, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
-  REINFORCED: { hp: 5, multiplier: 8n, stagePoints: 5n, tough: true, weightBp: 1000, texture: 'reinforced-cookie', asset: '/reinforced-cookie.svg' },
-  TITAN: { hp: 9, multiplier: 14n, stagePoints: 8n, tough: true, weightBp: 500, texture: 'titan-cookie', asset: '/titan-cookie.svg' },
-  BOMB: { hp: 1, multiplier: 0n, stagePoints: 0n, tough: false, weightBp: 500, texture: 'bomb-cookie', asset: '/bomb-cookie.svg' },
+  NORMAL: { hp: 1, multiplier: 1n, stagePoints: 1n, tough: false, weightBp: 8000, lifetimeMs: RULES.lifetimeMs, texture: 'cookie', asset: '/cookie.svg' },
+  HARD: { hp: 3, multiplier: 6n, stagePoints: 3n, tough: true, weightBp: 1500, lifetimeMs: 4000, texture: 'hard-cookie', asset: '/hard-cookie.svg' },
+  GOLDEN: { hp: 1, multiplier: 5n, stagePoints: 5n, tough: false, weightBp: 500, lifetimeMs: 1000, texture: 'golden-cookie', asset: '/golden-cookie.svg' },
+  REINFORCED: { hp: 5, multiplier: 8n, stagePoints: 5n, tough: true, weightBp: 1000, lifetimeMs: 5000, texture: 'reinforced-cookie', asset: '/reinforced-cookie.svg' },
+  TITAN: { hp: 9, multiplier: 14n, stagePoints: 8n, tough: true, weightBp: 500, lifetimeMs: 6000, texture: 'titan-cookie', asset: '/titan-cookie.svg' },
+  BOMB: { hp: 1, multiplier: 0n, stagePoints: 0n, tough: false, weightBp: 500, lifetimeMs: 2500, texture: 'bomb-cookie', asset: '/bomb-cookie.svg' },
 } as const;
 
 export type CookieType = keyof typeof COOKIE_TYPES;
 export type Cookie = {
   id: number; type: CookieType; x: number; y: number; radius: number;
+  vx?: number; vy?: number;
   hp: number; maxHp: number; expiresAt: number; rewardMultiplier: bigint; stagePoints: bigint; tough: boolean;
 };
 export type Bounds = { width: number; height: number };
@@ -76,10 +77,17 @@ export function defaultArea(bounds: Bounds): PlayArea {
   return { left: 0, top: RULES.hudHeight, right: bounds.width, bottom: bounds.height };
 }
 
+export function movementSpeed(stageNumber: number, area: PlayArea): number {
+  const { stageInCycle, cycleIndex } = cycleForStage(stageNumber);
+  const base = stageInCycle <= 3 ? 35 : stageInCycle <= 6 ? 52 : stageInCycle <= 9 ? 70 : 90;
+  return Math.min(base + Math.min(cycleIndex * 3, 30), Math.max(25, (area.bottom - area.top) * 0.35));
+}
+
 export class SpawnManager {
   readonly active = new Map<number, Cookie>();
   private nextId = 0;
   private nonToughSpawns = 0;
+  private movementRemainder = 0;
 
   constructor(private readonly random: () => number = Math.random) {}
 
@@ -112,11 +120,13 @@ export class SpawnManager {
 
   spawn(bounds: Bounds, now: number, radius: number = RULES.radius, area = defaultArea(bounds),
     options: { goldenChanceBp?: number; forcedType?: CookieType; excludeBomb?: boolean; hardHp?: number;
-      stageNumber?: number; toughNeeded?: boolean } = {}): Cookie | undefined {
+      stageNumber?: number; toughNeeded?: boolean; lifetimeBonusMs?: number } = {}): Cookie | undefined {
     const stageNumber = options.stageNumber ?? 1;
     const { cycleIndex } = cycleForStage(stageNumber);
     const hardHp = options.hardHp ?? COOKIE_TYPES.HARD.hp + cycleIndex;
     if (!Number.isSafeInteger(hardHp) || hardHp < 1) throw new RangeError('Invalid Hard HP');
+    const lifetimeBonusMs = options.lifetimeBonusMs ?? 0;
+    if (!Number.isSafeInteger(lifetimeBonusMs) || lifetimeBonusMs < 0) throw new RangeError('Invalid lifetime bonus');
     if (this.active.size >= RULES.maxCookies) return;
     const position = this.position(radius, area, [...this.active.values()]);
     if (!position) return;
@@ -138,8 +148,11 @@ export class SpawnManager {
     const hp = type === 'HARD' ? hardHp : type === 'REINFORCED' ? 5 + cycleIndex :
       type === 'TITAN' ? 9 + 2 * cycleIndex : definition.hp;
     if (!Number.isSafeInteger(hp)) throw new RangeError('Cookie HP exceeds safe integer');
+    const speed = movementSpeed(stageNumber, area);
+    const angle = (this.nextId * 2.399963229728653 + stageNumber * 0.31) % (2 * Math.PI);
     const cookie = { id: this.nextId++, type, ...position, radius, hp, maxHp: hp,
-      expiresAt: now + (type === 'BOMB' ? 5000 : RULES.lifetimeMs), rewardMultiplier: definition.multiplier,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      expiresAt: now + definition.lifetimeMs + (type === 'BOMB' ? 0 : lifetimeBonusMs), rewardMultiplier: definition.multiplier,
       stagePoints: definition.stagePoints, tough: definition.tough };
     this.active.set(cookie.id, cookie);
     this.nonToughSpawns = !options.toughNeeded || cookie.tough ? 0 :
@@ -168,6 +181,48 @@ export class SpawnManager {
     return expired;
   }
 
+  move(deltaMs: number, area: PlayArea): void {
+    if (!Number.isFinite(deltaMs) || deltaMs < 0) throw new RangeError('Invalid movement delta');
+    this.movementRemainder += deltaMs;
+    const cookies = [...this.active.values()];
+    while (this.movementRemainder >= 16) {
+      this.movementRemainder -= 16;
+      for (const cookie of cookies) {
+        const left = area.left + RULES.edge + cookie.radius;
+        const right = area.right - RULES.edge - cookie.radius;
+        const top = area.top + cookie.radius;
+        const bottom = area.bottom - RULES.edge - cookie.radius;
+        if (right < left || bottom < top) continue;
+        cookie.x += (cookie.vx ?? 0) * 0.016;
+        cookie.y += (cookie.vy ?? 0) * 0.016;
+        if (cookie.x < left || cookie.x > right) { cookie.x = Math.max(left, Math.min(right, cookie.x)); cookie.vx = -(cookie.vx ?? 0); }
+        if (cookie.y < top || cookie.y > bottom) { cookie.y = Math.max(top, Math.min(bottom, cookie.y)); cookie.vy = -(cookie.vy ?? 0); }
+      }
+      for (let pass = 0; pass < 6; pass++) {
+        for (let i = 0; i < cookies.length; i++) for (let j = i + 1; j < cookies.length; j++) {
+          const a = cookies[i], b = cookies[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const distance = Math.hypot(dx, dy);
+          const minimum = a.radius + b.radius + RULES.gap;
+          if (distance >= minimum) continue;
+          const nx = distance ? dx / distance : 1, ny = distance ? dy / distance : 0;
+          const shift = (minimum - distance) / 2;
+          a.x -= nx * shift; a.y -= ny * shift;
+          b.x += nx * shift; b.y += ny * shift;
+          const relative = (b.vx ?? 0) * nx + (b.vy ?? 0) * ny - (a.vx ?? 0) * nx - (a.vy ?? 0) * ny;
+          if (relative < 0) {
+            a.vx = (a.vx ?? 0) + relative * nx; a.vy = (a.vy ?? 0) + relative * ny;
+            b.vx = (b.vx ?? 0) - relative * nx; b.vy = (b.vy ?? 0) - relative * ny;
+          }
+        }
+        for (const cookie of cookies) {
+          cookie.x = Math.max(area.left + RULES.edge + cookie.radius, Math.min(area.right - RULES.edge - cookie.radius, cookie.x));
+          cookie.y = Math.max(area.top + cookie.radius, Math.min(area.bottom - RULES.edge - cookie.radius, cookie.y));
+        }
+      }
+    }
+  }
+
   resize(bounds: Bounds, area = defaultArea(bounds)): number[] {
     const cookies = [...this.active.values()];
     const kept = cookies.filter(cookie => this.fits(cookie.x, cookie.y, cookie.radius, area, []));
@@ -181,6 +236,14 @@ export class SpawnManager {
       } else {
         this.active.delete(cookie.id);
         removed.push(cookie.id);
+      }
+    }
+    const speedLimit = Math.max(25, (area.bottom - area.top) * 0.35);
+    for (const cookie of this.active.values()) {
+      const speed = Math.hypot(cookie.vx ?? 0, cookie.vy ?? 0);
+      if (speed > speedLimit) {
+        cookie.vx = cookie.vx! * speedLimit / speed;
+        cookie.vy = cookie.vy! * speedLimit / speed;
       }
     }
     return removed;

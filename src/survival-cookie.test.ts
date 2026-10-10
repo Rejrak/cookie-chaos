@@ -34,7 +34,7 @@ describe('M8 cookie hazards', () => {
     const bomb2 = game.spawn(area, 0, 40, undefined, { stageNumber: 25, forcedType: 'BOMB' })!;
     const fallback = game.spawn(area, 0, 40, undefined, { stageNumber: 25, forcedType: 'BOMB' })!;
     expect([first.type, bomb1.type, bomb2.type, fallback.type]).toEqual(['NORMAL', 'BOMB', 'BOMB', 'NORMAL']);
-    expect(bomb1.expiresAt).toBe(5000);
+    expect(bomb1.expiresAt).toBe(2500);
     expect(Math.hypot(bomb1.x - first.x, bomb1.y - first.y)).toBeGreaterThanOrEqual(92);
     const stage4 = new SpawnManager(() => 0);
     expect(stage4.spawn(area, 0, 40, undefined, { stageNumber: 4, forcedType: 'BOMB' })?.type).toBe('BOMB');

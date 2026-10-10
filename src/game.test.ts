@@ -238,11 +238,11 @@ describe('special cookies', () => {
     const game = new SpawnManager(() => 0);
     const economy = new Economy();
     const golden = game.spawn({ width: 300, height: 300 }, 0, 40, undefined, { forcedType: 'GOLDEN' })!;
-    let now = advanceGameTime(0, 3000, false);
+    let now = advanceGameTime(0, 500, false);
     now = advanceGameTime(now, 10_000, true);
-    expect(now).toBe(3000);
+    expect(now).toBe(500);
     expect(game.expire(now)).toEqual([]);
-    now = advanceGameTime(now, 5000, false);
+    now = advanceGameTime(now, 500, false);
     expect(game.expire(now)).toEqual([golden]);
     expect(economy.balance).toBe(0n);
     expect(economy.cookiesDestroyed).toBe(0);

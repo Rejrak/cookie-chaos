@@ -16,9 +16,10 @@ describe('Cookie Rain spawning', () => {
     const ordinary = new SpawnManager(bombRoll).spawn({ width: 500, height: 500 }, 0, 40, undefined,
       { stageNumber: 25 });
     const rain = new SpawnManager(bombRoll).spawn({ width: 500, height: 500 }, 0, 40, undefined,
-      { stageNumber: 25, excludeBomb: true });
+      { stageNumber: 25, excludeBomb: true, lifetimeBonusMs: 500 });
     expect(ordinary?.type).toBe('BOMB');
     expect(rain?.type).toBe('NORMAL');
+    expect(rain?.expiresAt).toBe(3500);
   });
 
   it('keeps cap, geometry and Tough fairness on successful extra spawns', () => {

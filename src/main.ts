@@ -178,7 +178,7 @@ class GameScene extends Phaser.Scene {
       const button = this.add.rectangle(0, 0, 1, 1, 0xe4d4b9).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
       const label = this.add.text(0, 0, '', { fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#57301d', lineSpacing: 0 }).setDepth(6);
       const iconName = id === 'health' ? 'health' : id === 'shield' ? 'shield' : id === 'speed' ? 'timer' :
-        id === 'power' ? 'tough' : id === 'luck' ? 'stage-points' : 'currency';
+        id === 'power' ? 'tough' : id === 'luck' ? 'stage-points' : id === 'lifetime' ? 'timer' : 'currency';
       const icon = this.add.image(0, 0, `icon-${iconName}`).setDepth(6);
       const badge = this.add.rectangle(0, 0, 86, 44, 0x236451).setDepth(6);
       const badgeText = this.add.text(0, 0, '', { ...heading, fontSize: '12px', color: '#fff6df', align: 'center' })
@@ -283,6 +283,11 @@ class GameScene extends Phaser.Scene {
         if (this.health.isDead) return;
         this.renderAttack();
       } else {
+        this.model.move(threatDelta, this.playArea);
+        for (const cookie of this.model.active.values()) {
+          this.sprites.get(cookie.id)?.setPosition(cookie.x, cookie.y);
+          this.cracks.get(cookie.id)?.setPosition(cookie.x, cookie.y);
+        }
         for (const cookie of this.model.expire(this.warp.threatNow)) {
           this.removeCookie(cookie.id);
           if (cookie.type === 'BOMB') this.floatText(cookie, 'SAFE', '#3d877c');
@@ -315,6 +320,7 @@ class GameScene extends Phaser.Scene {
       this.upgrades.radius, this.playArea, { goldenChanceBp: this.upgrades.goldenChanceBp,
         stageNumber: this.stage.stageNumber, hardHp: hardHpForStage(this.stage.stageNumber),
         toughNeeded: this.stage.toughDestroyed < this.stage.toughRequired,
+        lifetimeBonusMs: this.upgrades.lifetimeBonusMs,
         forcedType: first ? 'NORMAL' : undefined, excludeBomb: bonus });
     if (cookie) this.drawCookie(cookie);
   }
@@ -615,7 +621,10 @@ class GameScene extends Phaser.Scene {
         id === 'speed' ? `${this.upgrades.spawnMs} ms / spawn` :
         id === 'power' ? `${this.upgrades.damage} damage / click` :
           id === 'luck' ? `Golden chance ${this.upgrades.goldenChanceBp / 100}%` :
-            id === 'health' ? `${this.upgrades.maxHp} maximum HP` : `${this.upgrades.stageShields} shields / stage`;
+            id === 'health' ? `${this.upgrades.maxHp} maximum HP` :
+              id === 'lifetime' ? this.upgrades.lifetimeBonusMs ?
+                `+${(this.upgrades.lifetimeBonusMs / 1000).toFixed(1)}s duration` : '+0.5s per level' :
+                `${this.upgrades.stageShields} shields / stage`;
       const status = !upgrade.available ? 'LOCKED' : cost === null && id === 'power' ?
         `WAIT\nSTAGE ${12n * (BigInt(Math.floor(this.stage.maxCompletedStage / 12)) + 1n)}` : cost === null ? 'MAX' :
         this.economy.balance >= cost ? 'BUY' : 'NEED MORE';

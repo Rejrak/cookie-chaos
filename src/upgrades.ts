@@ -9,6 +9,7 @@ export const UPGRADES = {
   luck: { name: 'Golden Luck', description: 'More Golden Cookies', baseCost: 40n, chanceStepBp: 200, maxLevel: 10n, available: true },
   health: { name: 'Max Health', description: 'One more maximum HP', costs: [40n, 85n, 145n, 220n, 310n], maxLevel: 5n, available: true },
   shield: { name: 'Shield', description: 'One shield each stage', costs: [60n, 135n, 240n], maxLevel: 3n, available: true },
+  lifetime: { name: 'Cookie Lifetime', description: 'More time to catch cookies', costs: [30n, 45n, 70n, 105n], maxLevel: 4n, available: true },
 } as const;
 
 export type UpgradeId = keyof typeof UPGRADES;
@@ -47,6 +48,7 @@ export class UpgradeManager {
     if (id === 'power') return powerCost(level);
     if (id === 'health') return UPGRADES.health.costs[Number(level)];
     if (id === 'shield') return UPGRADES.shield.costs[Number(level)];
+    if (id === 'lifetime') return UPGRADES.lifetime.costs[Number(level)];
     const denominator = 2n ** level;
     const cost = (UPGRADES[id].baseCost * 3n ** level + denominator - 1n) / denominator;
     return id === 'speed' ? cost * (1n + level / 4n) : cost;
@@ -66,4 +68,5 @@ export class UpgradeManager {
   get goldenChanceBp(): number { return COOKIE_TYPES.GOLDEN.weightBp + Number(this.level('luck')) * UPGRADES.luck.chanceStepBp; }
   get maxHp(): number { return 5 + Number(this.level('health')); }
   get stageShields(): number { return Number(this.level('shield')); }
+  get lifetimeBonusMs(): number { return Number(this.level('lifetime')) * 500; }
 }
