@@ -329,16 +329,22 @@ export class P0Simulation {
     const ax = obstacle.ax, ay = obstacle.ay, bx = obstacle.bx, by = obstacle.by;
     const rx = bullet.x - oldX, ry = bullet.y - oldY, sx = bx - ax, sy = by - ay;
     const cross = rx * sy - ry * sx;
-    if (Math.abs(cross) < 1e-8) return;
     const qx = ax - oldX, qy = ay - oldY;
-    const t = (qx * sy - qy * sx) / cross, u = (qx * ry - qy * rx) / cross;
-    if (t < 0 || t > 1 || u < 0 || u > 1) return;
-    let nx = -sy / Math.hypot(sx, sy), ny = sx / Math.hypot(sx, sy);
-    if (bullet.vx * nx + bullet.vy * ny > 0) { nx *= -1; ny *= -1; }
+    const t = Math.abs(cross) < 1e-8 ? -1 : (qx * sy - qy * sx) / cross;
+    const u = Math.abs(cross) < 1e-8 ? -1 : (qx * ry - qy * rx) / cross;
+    const crossing = t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    const contact = crossing ? { x: oldX + rx * t, y: oldY + ry * t } :
+      distanceToSegment(bullet.x, bullet.y, ax, ay, bx, by);
+    const radius = P0.bulletRadius + 6.5;
+    if (!crossing && Math.hypot(bullet.x - contact.x, bullet.y - contact.y) >= radius) return;
+    let nx = crossing ? -sy / Math.hypot(sx, sy) : (bullet.x - contact.x) / (Math.hypot(bullet.x - contact.x, bullet.y - contact.y) || 1);
+    let ny = crossing ? sx / Math.hypot(sx, sy) : (bullet.y - contact.y) / (Math.hypot(bullet.x - contact.x, bullet.y - contact.y) || 1);
+    if (crossing && bullet.vx * nx + bullet.vy * ny > 0) { nx *= -1; ny *= -1; }
     const dot = bullet.vx * nx + bullet.vy * ny;
+    if (dot >= 0) return;
     bullet.vx -= 2 * dot * nx; bullet.vy -= 2 * dot * ny;
-    bullet.x = oldX + rx * t + nx * (P0.bulletRadius + 0.1);
-    bullet.y = oldY + ry * t + ny * (P0.bulletRadius + 0.1);
+    bullet.x = contact.x + nx * (radius + 0.1);
+    bullet.y = contact.y + ny * (radius + 0.1);
     bullet.bounces++;
     this.events.push({ type: 'bounce', x: bullet.x, y: bullet.y });
   }

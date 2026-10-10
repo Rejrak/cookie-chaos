@@ -108,6 +108,18 @@ describe('P0 shooter simulation', () => {
     expect(body.y).toBeLessThan(y);
   });
 
+  it('catches a fast bullet that grazes the visible obstacle edge', () => {
+    const sim = game(2, 0n, 'OBSTACLE'); sim.startWave();
+    const o = sim.obstacle!, x = (o.ax + o.bx) / 2, y = (o.ay + o.by) / 2;
+    const length = Math.hypot(o.bx - o.ax, o.by - o.ay);
+    const nx = -(o.by - o.ay) / length, ny = (o.bx - o.ax) / length;
+    sim.cookies[0].x = 350; sim.cookies[0].y = 30;
+    sim.bullets.push({ x: x + nx * 13, y: y + ny * 13, vx: -nx * 600, vy: -ny * 600, lifeMs: 500, bounces: 0 });
+    sim.advance(P0.stepMs);
+    expect(sim.bullets[0].bounces).toBe(1);
+    expect(Math.hypot(sim.bullets[0].vx, sim.bullets[0].vy)).toBeCloseTo(600, 5);
+  });
+
   it('requires all ordinary waves even when Stage Points reach target early', () => {
     const sim = game(); sim.sp = P0.targetSp;
     expect(sim.startWave()).toBe(true);
