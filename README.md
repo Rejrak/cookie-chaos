@@ -21,7 +21,7 @@ discover special cookies and defeat cookie bosses.
 - Random cookie spawning
 - Upgrades and special cookies
 - Cookie bosses
-- Cookie Rain events
+- Cookie Rain and Auto-clicker abilities
 - Optional rewarded ads
 - Persistent progress
 
@@ -45,3 +45,7 @@ Survival starts each stage at 5 HP. Bomb Cookies appear from stage 4: clicking o
 Endless progression uses exact `bigint` currency, Stage Points, and targets. Stage numbers and HP use JavaScript safe integers; unsafe scaling is rejected. The deterministic balance test walks stages 1–240 for economy, combat, and balanced purchase strategies at 2 and 4 clicks/s across three RNG seeds. It pays for upgrades from earned currency and includes misses, expirations, partial hits, retries, and a restricted viewport. Its timings are a model, not measured human play.
 
 The isolated survival simulation checks stages 4, 6, 9, 12, 18, 24, and 36 across three seeds, with accidental bomb clicks, dangerous expiry, missed clicks, boss attacks, parry rates, and retries. It starts with a representative prior balance and pays for offensive and defensive upgrades. It measures survival separately from the full economy progression test; neither simulation replaces a human playtest.
+
+The Special shop tab sells Cookie Rain and Auto-clicker charges for earned Cookies. The first Barbarian and Knight victory in each Kingdom grants one Rain or Auto-clicker charge respectively, up to three held charges per ability. Rain lasts 12 seconds and adds one bomb-free spawn opportunity per two normal spawn intervals; the usual spawn timer and Bomb odds stay unchanged. Auto-clicker lasts 9 seconds and hits the earliest-expiring Tough Cookie, then other collectible cookies, every 600 ms. It never selects Bombs or bosses and uses the same damage and reward path as a tap. Both abilities can be activated from the play field, end at a boss or stage result, and pause with the modal shop or lost focus. They keep normal timing while Time Warp slows threat timing. Charges survive Retry and Continue.
+
+The M9 balance simulation walks stages 1–36 with earned currency, purchases, seeded spawns, misses, bombs, dangerous expiry, bosses, and retries. It compares no ability, Rain, Auto-clicker, both, both with Time Warp, and a higher-miss profile at 2 and 4 clicks/s over three seeds. Its results measure the deterministic model, not human touch performance.
