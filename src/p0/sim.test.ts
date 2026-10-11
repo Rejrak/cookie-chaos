@@ -14,6 +14,40 @@ function clearWave(sim: P0Simulation) {
 }
 
 describe('P0 shooter simulation', () => {
+  it('keeps visible sizes and hit geometry proportional and uses a bounded intercept time', () => {
+    for (const [width, height] of [[320, 150], [390, 664], [960, 539], [960, 720]]) {
+      const sim = new P0Simulation(width, height, 'FREE', 7);
+      expect(sim.cookieRadius).toBeGreaterThanOrEqual(P0.cookieRadius);
+      expect(sim.cookieRadius).toBeLessThanOrEqual(P0.maxCookieRadius);
+      expect(sim.bulletRadius).toBeGreaterThanOrEqual(P0.bulletRadius);
+      const topFlightMs = (sim.cannonY - sim.cookieRadius * 0.85 - sim.cookieRadius) / sim.projectileSpeed * 1000;
+      expect(topFlightMs).toBeGreaterThan(250);
+      expect(topFlightMs).toBeLessThan(P0.projectileTravelMs);
+      sim.startWave();
+      for (const body of sim.cookies) {
+        expect(body.x).toBeGreaterThanOrEqual(sim.cookieRadius);
+        expect(body.x).toBeLessThanOrEqual(sim.width - sim.cookieRadius);
+      }
+      sim.resize(320, 150);
+      for (const body of sim.cookies) {
+        expect(body.x).toBeGreaterThanOrEqual(sim.cookieRadius);
+        expect(body.x).toBeLessThanOrEqual(sim.width - sim.cookieRadius);
+      }
+    }
+  });
+  it('uses the scaled desktop cookie and projectile radii for collision', () => {
+    const inside = new P0Simulation(960, 539, 'FREE', 4);
+    const outside = new P0Simulation(960, 539, 'FREE', 4);
+    inside.startWave(); outside.startWave();
+    for (const [sim, margin] of [[inside, -0.5], [outside, 1]] as const) {
+      const body = sim.cookies[0];
+      sim.bullets.push({ x: body.x + sim.cookieRadius + sim.bulletRadius + margin,
+        y: body.y + 80, vx: 0, vy: -25_000, lifeMs: 100, bounces: 0 });
+      sim.advance(P0.stepMs);
+    }
+    expect(inside.hits).toBe(1);
+    expect(outside.hits).toBe(0);
+  });
   it('rejects invalid setup rather than running a non-finite simulation', () => {
     expect(() => new P0Simulation(Number.NaN, 500, 'FREE', 1)).toThrow();
     expect(() => new P0Simulation(300, 500, 'FREE', -1)).toThrow();

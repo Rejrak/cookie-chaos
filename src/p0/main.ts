@@ -24,6 +24,8 @@ root.innerHTML = `
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const arenaEl = el<HTMLDivElement>('arena');
+arenaEl.style.maxWidth = `${P0.arenaMaxWidth}px`;
+arenaEl.style.maxHeight = `${P0.arenaMaxHeight}px`;
 const arenaSelect = el<HTMLSelectElement>('arenaSelect');
 const touchSelect = el<HTMLSelectElement>('touchSelect');
 const seedInput = el<HTMLInputElement>('seedInput');
@@ -101,23 +103,23 @@ class P0Scene extends Phaser.Scene {
     this.graphics.lineStyle(2, 0xcda66e, 0.4);
     for (let x = 20; x < w; x += 48) this.graphics.lineBetween(x, 0, x, sim.groundY);
     const obstacle = sim.obstacle;
-    if (obstacle) this.graphics.lineStyle(13, 0x75503b).lineBetween(obstacle.ax, obstacle.ay, obstacle.bx, obstacle.by);
+    if (obstacle) this.graphics.lineStyle(2 * sim.obstacleHalfWidth, 0x75503b).lineBetween(obstacle.ax, obstacle.ay, obstacle.bx, obstacle.by);
     this.graphics.fillStyle(0x4b2d23).fillRect(0, sim.groundY, w, h - sim.groundY);
-    for (const bullet of sim.bullets) this.graphics.fillStyle(0x68402e).fillCircle(bullet.x, bullet.y, P0.bulletRadius);
-    this.graphics.fillStyle(0x8b5b3d).fillCircle(sim.cannonX, sim.cannonY, 19);
+    for (const bullet of sim.bullets) this.graphics.fillStyle(0x68402e).fillCircle(bullet.x, bullet.y, sim.bulletRadius);
+    this.graphics.fillStyle(0x8b5b3d).fillCircle(sim.cannonX, sim.cannonY, sim.cookieRadius);
     const aim = sim.aimPoint;
     const ax = aim.x - sim.cannonX, ay = aim.y - sim.cannonY;
     const length = Math.hypot(ax, ay) || 1;
-    this.aim.lineStyle(3, 0x56372c).lineBetween(sim.cannonX, sim.cannonY, sim.cannonX + ax / length * 42, sim.cannonY + ay / length * 42);
+    this.aim.lineStyle(3, 0x56372c).lineBetween(sim.cannonX, sim.cannonY, sim.cannonX + ax / length * sim.cookieRadius * 2.2, sim.cannonY + ay / length * sim.cookieRadius * 2.2);
     const present = new Set<number>();
     for (const body of sim.cookies) {
       present.add(body.id);
       let sprite = this.sprites.get(body.id);
       if (!sprite) {
-        sprite = this.add.image(body.x, body.y, `p0-${body.kind.toLowerCase()}`).setDisplaySize(2 * P0.cookieRadius, 2 * P0.cookieRadius);
+        sprite = this.add.image(body.x, body.y, `p0-${body.kind.toLowerCase()}`).setDisplaySize(2 * sim.cookieRadius, 2 * sim.cookieRadius);
         this.sprites.set(body.id, sprite);
       }
-      sprite.setPosition(body.x, body.y);
+      sprite.setPosition(body.x, body.y).setDisplaySize(2 * sim.cookieRadius, 2 * sim.cookieRadius);
       if (body.kind === 'HARD') {
         let label = this.hpLabels.get(body.id);
         if (!label) { label = this.add.text(body.x, body.y, '', { fontFamily: 'system-ui', fontSize: '14px', color: '#ffffff', stroke: '#301f19', strokeThickness: 3 }).setOrigin(0.5); this.hpLabels.set(body.id, label); }

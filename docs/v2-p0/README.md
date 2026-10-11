@@ -23,7 +23,9 @@ Open **Metrics / JSON** to pause and inspect the session. **Download JSON** save
 |---|---:|
 | Base HP / SP target | 5 / 25 |
 | Ordinary wave deadline / spawn gap | 14 s / 1.25 s |
-| Projectile speed / life | 1.7 arena heights/s / 1.5 s |
+| Projectile speed / life | one arena height per 420 ms / 1.5 s |
+| Desktop arena limit | 960×720 px |
+| Cookie collision radius | 19–26 px, based on arena width |
 | Damage / fire rate | 1 / 3 shots/s |
 | Normal / Hard / Golden SP | 1 / 3 / 5 |
 | Normal / Hard / Golden HP | 1 / 3 / 1 |
@@ -37,3 +39,5 @@ The three ordinary waves contain 5 Normal + 1 Hard, 6 Normal + 2 Hard + 1 Golden
 The M10 baseline had 137 passing tests, typecheck, and build. P0 tests cover deterministic 30/60 FPS progression, high-speed projectile hits, bounce, collisions, wave transitions, recovery, wallet, Retry, and resize. Chrome headless was checked at 320×320, 360×640, 390×844, 568×320, and 1280×720. Screenshot evidence is in `screenshots/`. Browser interaction checks covered mouse hold/release, touch drag with Offset, both upgrades, and a paused metrics panel. Those checks are technical smoke tests; they do not establish human playability, balance, or real-device touch quality.
 
 P0 does not persist progress. HP, costs, fall times, obstacle position, and recovery pressure require human playtest. Browser screenshots show one early moment of each wave; they do not prove every later encounter fits a small screen. The provided playtest metrics support that review.
+
+The [2K and touch corrective review](review-2k-touch.md) includes before/after screenshots, measured projectile travel times, and reproducible browser interaction checks. In **DEFEAT**, choose **Retry stage** and then **Start wave 1** before dragging to fire again.

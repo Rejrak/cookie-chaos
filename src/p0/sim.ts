@@ -80,9 +80,13 @@ export class P0Simulation {
       bx: this.width * 0.48, by: this.height * 0.36,
     } : null;
   }
-  get groundY() { return this.height - 30; }
+  get cookieRadius() { return clamp(this.width * P0.cookieWidthFraction, P0.cookieRadius, P0.maxCookieRadius); }
+  get bulletRadius() { return Math.max(P0.bulletRadius, this.cookieRadius * P0.projectileRadiusFraction); }
+  get obstacleHalfWidth() { return this.cookieRadius * P0.obstacleHalfWidthFraction; }
+  get groundY() { return this.height - Math.max(30, this.cookieRadius * 1.55); }
   get cannonX() { return this.width / 2; }
-  get cannonY() { return this.height - 20; }
+  get cannonY() { return this.height - this.cookieRadius - 1; }
+  get projectileSpeed() { return this.height * 1000 / P0.projectileTravelMs; }
   get aimPoint() { return { x: this.aimX, y: this.aimY }; }
   get fireRate() { return this.fireRateLevel ? 4 : 3; }
   get damage() { return 1 + this.damageLevel; }
@@ -156,13 +160,14 @@ export class P0Simulation {
   resize(width: number, height: number) {
     if (width < 160 || height < 150) return;
     const sx = width / this.width, sy = height / this.height;
+    this.width = width; this.height = height;
+    const radius = this.cookieRadius;
     for (const body of this.cookies) {
-      body.x = clamp(body.x * sx, P0.cookieRadius, width - P0.cookieRadius);
-      body.y = clamp(body.y * sy, P0.cookieRadius, height - 30 - P0.cookieRadius);
+      body.x = clamp(body.x * sx, radius, width - radius);
+      body.y = clamp(body.y * sy, radius, this.groundY - radius);
     }
     for (const bullet of this.bullets) { bullet.x *= sx; bullet.y *= sy; bullet.vx *= sy; bullet.vy *= sy; }
     this.aimX *= sx; this.aimY *= sy;
-    this.width = width; this.height = height;
     for (const body of this.cookies) this.collideObstacle(body);
     this.separateCookies();
   }
@@ -195,13 +200,13 @@ export class P0Simulation {
     } else this.fireElapsed = Math.min(this.fireElapsed, 1000 / this.fireRate);
 
     for (const body of this.cookies) {
-      const fallDistance = Math.max(30, this.groundY - 2 * P0.cookieRadius);
+      const fallDistance = Math.max(30, this.groundY - 2 * this.cookieRadius);
       const fallSeconds = P0.fallSeconds[body.kind];
       const gravity = 2 * fallDistance / (fallSeconds * fallSeconds);
       const terminal = 2.4 * fallDistance / fallSeconds;
       body.vy = Math.min(terminal, body.vy + gravity * dt);
       body.x += body.vx * dt; body.y += body.vy * dt;
-      const r = P0.cookieRadius;
+      const r = this.cookieRadius;
       if (body.x < r || body.x > this.width - r) {
         body.x = clamp(body.x, r, this.width - r); body.vx *= -0.65;
       }
@@ -215,7 +220,7 @@ export class P0Simulation {
     this.separateCookies();
     for (let i = this.cookies.length - 1; i >= 0; i--) {
       const body = this.cookies[i];
-      if (body.y + P0.cookieRadius >= this.groundY) {
+      if (body.y + this.cookieRadius >= this.groundY) {
         this.cookies.splice(i, 1);
         this.escaped[body.kind]++;
         const damage = P0.cookies[body.kind].groundDamage;
@@ -230,15 +235,15 @@ export class P0Simulation {
       const bullet = this.bullets[i];
       const x0 = bullet.x, y0 = bullet.y;
       bullet.x += bullet.vx * dt; bullet.y += bullet.vy * dt; bullet.lifeMs -= ms;
-      if (bullet.x < P0.bulletRadius || bullet.x > this.width - P0.bulletRadius) {
-        bullet.x = clamp(bullet.x, P0.bulletRadius, this.width - P0.bulletRadius);
+      if (bullet.x < this.bulletRadius || bullet.x > this.width - this.bulletRadius) {
+        bullet.x = clamp(bullet.x, this.bulletRadius, this.width - this.bulletRadius);
         bullet.vx *= -1; bullet.bounces++;
         this.events.push({ type: 'bounce', x: bullet.x, y: bullet.y });
       }
       this.collideBulletObstacle(bullet, x0, y0);
       let closest = 2, target: Body | null = null;
       for (const body of this.cookies) {
-        const t = sweepCircle(x0, y0, bullet.x, bullet.y, body.x, body.y, P0.cookieRadius + P0.bulletRadius);
+        const t = sweepCircle(x0, y0, bullet.x, bullet.y, body.x, body.y, this.cookieRadius + this.bulletRadius);
         if (t !== null && t < closest) { closest = t; target = body; }
       }
       if (target) {
@@ -255,12 +260,13 @@ export class P0Simulation {
 
   private spawn() {
     if (!this.queue.length) return;
-    if (this.cookies.length >= Math.max(4, Math.floor(this.width / 65))) { this.rejectedSpawns++; return; }
+    const radius = this.cookieRadius;
+    if (this.cookies.length >= Math.max(4, Math.floor(this.width / (radius * 3.4)))) { this.rejectedSpawns++; return; }
     const kind = this.queue[0];
     for (let attempt = 0; attempt < 16; attempt++) {
-      const x = P0.cookieRadius + this.random() * (this.width - 2 * P0.cookieRadius);
-      const y = P0.cookieRadius + this.random() * 10;
-      if (this.cookies.some(body => Math.hypot(body.x - x, body.y - y) < 2 * P0.cookieRadius + 3)) continue;
+      const x = radius + this.random() * (this.width - 2 * radius);
+      const y = radius + this.random() * 10;
+      if (this.cookies.some(body => Math.hypot(body.x - x, body.y - y) < 2 * radius + 3)) continue;
       this.cookies.push({ id: ++this.id, kind, x, y, vx: (this.random() - 0.5) * 38, vy: 0, hp: P0.cookies[kind].hp, stuckMs: 0 });
       this.queue.shift(); return;
     }
@@ -270,8 +276,8 @@ export class P0Simulation {
   private shoot() {
     const dx = this.aimX - this.cannonX, dy = this.aimY - this.cannonY;
     const length = Math.hypot(dx, dy) || 1;
-    const speed = 1.7 * this.height;
-    this.bullets.push({ x: this.cannonX, y: this.cannonY - 16, vx: dx / length * speed, vy: dy / length * speed, lifeMs: P0.bulletLifeMs, bounces: 0 });
+    const speed = this.projectileSpeed;
+    this.bullets.push({ x: this.cannonX, y: this.cannonY - this.cookieRadius * 0.85, vx: dx / length * speed, vy: dy / length * speed, lifeMs: P0.bulletLifeMs, bounces: 0 });
     this.shots++;
     this.events.push({ type: 'shot' });
   }
@@ -287,7 +293,7 @@ export class P0Simulation {
   }
 
   private separateCookies() {
-    const min = 2 * P0.cookieRadius;
+    const min = 2 * this.cookieRadius;
     for (let pass = 0; pass < 6; pass++) {
       for (let i = 0; i < this.cookies.length; i++) for (let j = i + 1; j < this.cookies.length; j++) {
         const a = this.cookies[i], b = this.cookies[j];
@@ -296,10 +302,10 @@ export class P0Simulation {
         if (distance >= min) continue;
         if (distance < 0.001) { dx = 1; dy = 0; distance = 1; }
         const nx = dx / distance, ny = dy / distance, overlap = (min - distance) / 2;
-        a.x = clamp(a.x - nx * overlap, P0.cookieRadius, this.width - P0.cookieRadius);
-        b.x = clamp(b.x + nx * overlap, P0.cookieRadius, this.width - P0.cookieRadius);
-        a.y = Math.max(P0.cookieRadius, a.y - ny * overlap);
-        b.y = Math.max(P0.cookieRadius, b.y + ny * overlap);
+        a.x = clamp(a.x - nx * overlap, this.cookieRadius, this.width - this.cookieRadius);
+        b.x = clamp(b.x + nx * overlap, this.cookieRadius, this.width - this.cookieRadius);
+        a.y = Math.max(this.cookieRadius, a.y - ny * overlap);
+        b.y = Math.max(this.cookieRadius, b.y + ny * overlap);
         const relative = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
         if (relative < 0) {
           const impulse = -0.7 * relative;
@@ -315,7 +321,7 @@ export class P0Simulation {
     if (!obstacle) return;
     const point = distanceToSegment(body.x, body.y, obstacle.ax, obstacle.ay, obstacle.bx, obstacle.by);
     const dx = body.x - point.x, dy = body.y - point.y, distance = Math.hypot(dx, dy);
-    const min = P0.cookieRadius + 5;
+    const min = this.cookieRadius + this.obstacleHalfWidth;
     if (distance >= min) return;
     const nx = distance > 0.001 ? dx / distance : 0, ny = distance > 0.001 ? dy / distance : -1;
     body.x += nx * (min - distance); body.y += ny * (min - distance);
@@ -335,7 +341,7 @@ export class P0Simulation {
     const crossing = t >= 0 && t <= 1 && u >= 0 && u <= 1;
     const contact = crossing ? { x: oldX + rx * t, y: oldY + ry * t } :
       distanceToSegment(bullet.x, bullet.y, ax, ay, bx, by);
-    const radius = P0.bulletRadius + 6.5;
+    const radius = this.bulletRadius + this.obstacleHalfWidth;
     if (!crossing && Math.hypot(bullet.x - contact.x, bullet.y - contact.y) >= radius) return;
     let nx = crossing ? -sy / Math.hypot(sx, sy) : (bullet.x - contact.x) / (Math.hypot(bullet.x - contact.x, bullet.y - contact.y) || 1);
     let ny = crossing ? sx / Math.hypot(sx, sy) : (bullet.y - contact.y) / (Math.hypot(bullet.x - contact.x, bullet.y - contact.y) || 1);
@@ -372,7 +378,8 @@ export class P0Simulation {
   metrics() {
     return {
       seed: this.seed, arena: this.arena, initialCredit: this.initialCredit.toString(),
-      config: { targetSp: P0.targetSp, maxHp: P0.maxHp, ordinaryWaveMs: P0.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: P0.spawnMs },
+      config: { targetSp: P0.targetSp, maxHp: P0.maxHp, ordinaryWaveMs: P0.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: P0.spawnMs,
+        cookieRadius: this.cookieRadius, bulletRadius: this.bulletRadius, projectileSpeed: this.projectileSpeed },
       viewport: { width: this.width, height: this.height },
       phase: this.phase, wave: this.waveLabel, waveDurationsMs: this.waveDurations,
       totalTimeMs: Math.round(this.totalTimeMs), shots: this.shots, hits: this.hits,

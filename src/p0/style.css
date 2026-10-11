@@ -14,7 +14,7 @@ button:disabled { opacity: .48; cursor: default; }
 .primary { background: #edaf44; }
 .hud { display: flex; justify-content: space-between; gap: 5px; padding: 5px 8px; background: #694132; color: #fff7e8; font-weight: 800; font-size: 13px; }
 #hp { color: #ffb4ad; } #sp { color: #bfe5ff; } #clock { color: #ffe58a; }
-#arena { flex: 1; min-height: 150px; overflow: hidden; touch-action: none; }
+#arena { flex: 1; width: 100%; min-height: 150px; align-self: center; margin: auto 0; overflow: hidden; touch-action: none; box-shadow: 0 0 0 2px #cda66e; }
 #arena canvas { display: block; }
 footer { display: flex; gap: 5px; padding: 6px; align-items: center; justify-content: space-between; background: #edcf9b; }
 .shop { display: flex; gap: 4px; }
