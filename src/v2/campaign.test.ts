@@ -81,7 +81,7 @@ describe('V2 campaign', () => {
     expect(game.buy('damage', 'tx1')).toBe(true);
     expect(game.buy('damage', 'tx1')).toBe(false);
     expect(game.sim.damage).toBe(2);
-    expect(game.balance).toBe(9007199254740973n);
+    expect(game.balance).toBe(9007199254740963n);
     const loaded = new Campaign(390, 550, db);
     expect(loaded.state.damageLevel).toBe(1);
     expect(loaded.balance).toBe(game.balance);
@@ -159,7 +159,7 @@ describe('V2 campaign', () => {
   });
   it('applies rising Damage and Fire Rate costs without passing their caps', () => {
     const game = new Campaign(390, 550);
-    game.state.balance = '1000'; game.sim.consolidated = 1000n;
+    game.state.balance = '1100'; game.sim.consolidated = 1100n;
     for (let level = 0; level < 4; level++) {
       expect(game.buy('damage', `damage-${level}`)).toBe(true);
       expect(game.sim.damage).toBe(level + 2);
@@ -170,13 +170,13 @@ describe('V2 campaign', () => {
       expect(game.sim.fireRate).toBe(level + 4);
     }
     expect(game.buy('fireRate', 'rate-extra')).toBe(false);
-    expect(game.balance).toBe(1000n - 20n - 35n - 55n - 80n - 20n - 40n - 65n);
+    expect(game.balance).toBe(1100n - 30n - 80n - 180n - 360n - 30n - 100n - 250n);
   });
 
   it('handles unavailable storage and failed writes without touching the old save', () => {
     const broken = { getItem: (_key: string) => null, setItem: (_key: string, _value: string) => { throw Error('quota'); } };
     const game = new Campaign(390, 550, broken);
-    game.state.balance = '20'; game.sim.consolidated = 20n;
+    game.state.balance = '30'; game.sim.consolidated = 30n;
     expect(game.buy('damage', 'one')).toBe(true);
     expect(game.persistenceWarning).toContain('Save failed');
     expect(game.storage).toBeNull();

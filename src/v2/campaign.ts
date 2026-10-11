@@ -4,8 +4,8 @@ import { CAMPAIGN_FALL_SECONDS, KINGDOM_ONE } from './stages';
 export const SAVE_KEY = 'cookie-chaos-v2-campaign-v1';
 export type UpgradeKind = 'damage' | 'fireRate' | 'maxHp' | 'repair';
 export const SHOP = {
-  damage: { costs: [20n, 35n, 55n, 80n], effect: '+1 projectile damage' },
-  fireRate: { costs: [20n, 40n, 65n], effect: '+1 shot per second' },
+  damage: { costs: [30n, 80n, 180n, 360n], effect: '+1 projectile damage' },
+  fireRate: { costs: [30n, 100n, 250n], effect: '+1 shot per second' },
   maxHp: { costs: [35n, 55n, 80n, 110n, 145n], effect: '+1 maximum and current HP' },
   repair: { cost: 25n, percent: 50 },
 } as const;
