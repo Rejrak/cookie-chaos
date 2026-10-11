@@ -1,10 +1,10 @@
-import { P0, seededRandom, type ArenaKind, type CookieKind, type ShooterRules } from './config';
+import { COOKIE_KINDS, P0, seededRandom, type ArenaKind, type CookieKind, type ShooterRules } from './config';
 import { BossEncounter, type BossThreat } from '../v2/boss';
 
-export type Body = { id: number; kind: CookieKind; x: number; y: number; vx: number; vy: number; hp: number; stuckMs: number };
+export type Body = { id: number; kind: CookieKind; x: number; y: number; vx: number; vy: number; hp: number; stuckMs: number; radius?: number; maxY?: number };
 export type Bullet = { x: number; y: number; vx: number; vy: number; lifeMs: number; bounces: number };
 export type Phase = 'PREP' | 'RUNNING' | 'WON' | 'LOST' | 'AWAITING_BOSS_IMPLEMENTATION' | 'BOSS_INTRO' | 'BOSS_FIGHT' | 'BOSS_CLEANUP';
-export type Event = { type: 'destroy' | 'escape' | 'hit' | 'shot' | 'bounce' | 'boss-hit' | 'boss-block' | 'threat-hit' | 'threat-destroy'; kind?: CookieKind; x?: number; y?: number };
+export type Event = { type: 'destroy' | 'escape' | 'hit' | 'shot' | 'bounce' | 'boss-hit' | 'boss-block' | 'threat-hit' | 'threat-destroy' | 'explosion'; kind?: CookieKind; x?: number; y?: number; radius?: number };
 
 function clamp(value: number, low: number, high: number) { return Math.min(high, Math.max(low, value)); }
 function distanceToSegment(x: number, y: number, ax: number, ay: number, bx: number, by: number) {
@@ -30,9 +30,10 @@ export class P0Simulation {
   readonly events: Event[] = [];
   readonly cookies: Body[] = [];
   readonly bullets: Bullet[] = [];
+  readonly explosions: { x: number; y: number; radius: number; remainingMs: number }[] = [];
   boss: BossEncounter | null = null;
-  readonly destroyed: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
-  readonly escaped: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
+  readonly destroyed: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0, REINFORCED: 0, TITAN: 0, BOMB: 0 };
+  readonly escaped: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0, REINFORCED: 0, TITAN: 0, BOMB: 0 };
   readonly waveDurations: { attempt: number; wave: number; durationMs: number }[] = [];
   readonly purchases: { kind: 'damage' | 'fireRate'; cost: string; timeMs: number }[] = [];
   readonly waveBudgets: { attempt: number; wave: number; scheduled: number; generated: number; unspawned: number; potentialSp: number }[] = [];
@@ -60,7 +61,7 @@ export class P0Simulation {
   rejectedSpawns = 0;
   removedOnLoss = 0;
   generatedPotentialSp = 0;
-  unspawned: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
+  unspawned: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0, REINFORCED: 0, TITAN: 0, BOMB: 0 };
   private random: () => number;
   private id = 0;
   private queue: CookieKind[] = [];
@@ -102,6 +103,8 @@ export class P0Simulation {
     } : null;
   }
   get cookieRadius() { return clamp(this.width * P0.cookieWidthFraction, P0.cookieRadius, P0.maxCookieRadius); }
+  private radiusOf(body: Body) { return body.radius ?? this.cookieRadius; }
+  private radiusFor(kind: CookieKind) { return this.cookieRadius * (kind === 'TITAN' ? 1.42 : kind === 'REINFORCED' ? 1.15 : kind === 'BOMB' ? 1.12 : 1); }
   get bulletRadius() { return Math.max(P0.bulletRadius, this.cookieRadius * P0.projectileRadiusFraction); }
   get obstacleHalfWidth() { return this.cookieRadius * P0.obstacleHalfWidthFraction; }
   get groundY() { return this.height - Math.max(30, this.cookieRadius * 1.55); }
@@ -138,7 +141,7 @@ export class P0Simulation {
     this.wave++;
     if (this.wave < this.rules.waves.length) {
       const counts = this.rules.waves[this.wave];
-      this.queue = [...Array(counts.NORMAL).fill('NORMAL'), ...Array(counts.HARD).fill('HARD'), ...Array(counts.GOLDEN).fill('GOLDEN')];
+      this.queue = COOKIE_KINDS.flatMap(kind => Array(counts[kind] ?? 0).fill(kind) as CookieKind[]);
     } else {
       this.recoveryCount++;
       this.totalRecoveryWaves++;
@@ -182,6 +185,7 @@ export class P0Simulation {
     this.wave = -1;
     this.recoveryCount = 0;
     this.cookies.length = 0;
+    this.explosions.length = 0;
     this.bullets.length = 0;
     this.boss = null;
     this.queue = [];
@@ -194,15 +198,17 @@ export class P0Simulation {
 
   resize(width: number, height: number) {
     if (width < 160 || height < 150) return;
-    const sx = width / this.width, sy = height / this.height;
+    const sx = width / this.width, sy = height / this.height, radiusScale = clamp(width * P0.cookieWidthFraction, P0.cookieRadius, P0.maxCookieRadius) / this.cookieRadius;
     this.width = width; this.height = height;
     this.boss?.resize(width, height);
-    const radius = this.cookieRadius;
     for (const body of this.cookies) {
+      if (body.radius) body.radius *= radiusScale;
+      const radius = this.radiusOf(body);
       body.x = clamp(body.x * sx, radius, width - radius);
       body.y = clamp(body.y * sy, radius, this.groundY - radius);
     }
     for (const bullet of this.bullets) { bullet.x *= sx; bullet.y *= sy; bullet.vx *= sy; bullet.vy *= sy; }
+    for (const blast of this.explosions) { blast.x *= sx; blast.y *= sy; blast.radius *= radiusScale; }
     this.aimX *= sx; this.aimY *= sy;
     for (const body of this.cookies) this.collideObstacle(body);
     this.separateCookies();
@@ -221,6 +227,7 @@ export class P0Simulation {
 
   private step(ms: number) {
     const dt = ms / 1000;
+    for (let i = this.explosions.length - 1; i >= 0; i--) if ((this.explosions[i].remainingMs -= ms) <= 0) this.explosions.splice(i, 1);
     this.totalTimeMs += ms;
     this.fireElapsed += ms;
     if (this.firing) {
@@ -239,27 +246,39 @@ export class P0Simulation {
       this.queue.length = 0;
     }
     for (const body of this.cookies) {
-      const fallDistance = Math.max(30, this.groundY - 2 * this.cookieRadius);
-      const fallSeconds = this.rules.fallSeconds?.[body.kind] ?? P0.fallSeconds[body.kind];
+      const r = this.radiusOf(body);
+      const fallDistance = Math.max(30, this.groundY - 2 * r);
+      const fallSeconds = this.rules.fallSeconds?.[body.kind] ?? P0.fallSeconds[body.kind as 'NORMAL' | 'HARD' | 'GOLDEN'] ?? P0.fallSeconds.HARD;
       const gravity = 2 * fallDistance / (fallSeconds * fallSeconds);
       const terminal = 2.4 * fallDistance / fallSeconds;
       body.vy = Math.min(terminal, body.vy + gravity * dt);
       body.x += body.vx * dt; body.y += body.vy * dt;
-      const r = this.cookieRadius;
       if (body.x < r || body.x > this.width - r) {
         body.x = clamp(body.x, r, this.width - r); body.vx *= -0.65;
       }
       if (body.y < r) { body.y = r; body.vy = Math.abs(body.vy) * 0.55; }
       this.collideObstacle(body);
-      if (Math.hypot(body.vx, body.vy) < 13) body.stuckMs += ms;
-      else body.stuckMs = 0;
-      if (body.stuckMs > 800) { body.vy = Math.max(body.vy, 35 + body.stuckMs / 80); body.vx *= 0.95; }
-      if (body.stuckMs > 2500) { body.y = Math.min(this.groundY - r, body.y + 1); body.vy = Math.max(body.vy, 80); }
+      if (body.radius && this.obstacle) {
+        if (body.y > (body.maxY ?? body.y) + 1) { body.maxY = body.y; body.stuckMs = 0; }
+        else body.stuckMs += ms;
+        if (body.stuckMs > 2_500) {
+          // shortcut: a large cookie trapped against the compact arena wall clears the obstacle at its right end.
+          const obstacle = this.obstacle;
+          body.x = Math.min(this.width - r, obstacle.bx + r + this.obstacleHalfWidth + 2);
+          body.y = Math.max(body.y, obstacle.by + r + this.obstacleHalfWidth + 2);
+          body.vy = Math.max(body.vy, 80); body.stuckMs = 0; body.maxY = body.y;
+        }
+      } else {
+        if (Math.hypot(body.vx, body.vy) < 13) body.stuckMs += ms;
+        else body.stuckMs = 0;
+        if (body.stuckMs > 800) { body.vy = Math.max(body.vy, 35 + body.stuckMs / 80); body.vx *= 0.95; }
+        if (body.stuckMs > 2500) { body.y = Math.min(this.groundY - r, body.y + 1); body.vy = Math.max(body.vy, 80); }
+      }
     }
     this.separateCookies();
     for (let i = this.cookies.length - 1; i >= 0; i--) {
       const body = this.cookies[i];
-      if (body.y + this.cookieRadius >= this.groundY) {
+      if (body.y + this.radiusOf(body) >= this.groundY) {
         this.cookies.splice(i, 1);
         this.escaped[body.kind]++;
         const damage = P0.cookies[body.kind].groundDamage;
@@ -298,7 +317,7 @@ export class P0Simulation {
         if (dy < 0 && y1 < 0) { const t = -y0 / dy; if (t >= 0 && t < earliest) { earliest = t; surface = 'edge'; } }
         if (dy > 0 && y1 >= this.groundY) { const t = (this.groundY - y0) / dy; if (t >= 0 && t < earliest) { earliest = t; surface = 'edge'; } }
         for (const body of this.cookies) {
-          const t = sweepCircle(x0, y0, x1, y1, body.x, body.y, this.cookieRadius + this.bulletRadius);
+          const t = sweepCircle(x0, y0, x1, y1, body.x, body.y, this.radiusOf(body) + this.bulletRadius);
           if (t !== null && t < earliest - 1e-8) { earliest = t; target = body; surface = null; }
         }
         if (this.boss) {
@@ -324,7 +343,8 @@ export class P0Simulation {
             if ('damage' in target && this.boss) {
               this.provisional += this.boss.intercept(target);
               this.events.push({ type: 'threat-destroy', kind: target.kind, x: target.x, y: target.y });
-            } else this.destroy(target as Body);
+            } else if (target.kind === 'BOMB') this.detonate(target as Body);
+            else this.destroy(target as Body);
           }
           break;
         }
@@ -356,14 +376,14 @@ export class P0Simulation {
 
   private spawn() {
     if (!this.queue.length) return;
-    const radius = this.cookieRadius;
+    const kind = this.queue[0], radius = this.radiusFor(kind);
     if (this.cookies.length >= Math.min(this.rules.maxActive, Math.max(4, Math.floor(this.width / (radius * 3.4))))) { this.rejectedSpawns++; return; }
-    const kind = this.queue[0];
     for (let attempt = 0; attempt < 16; attempt++) {
       const x = radius + this.random() * (this.width - 2 * radius);
       const y = radius + this.random() * 10;
-      if (this.cookies.some(body => Math.hypot(body.x - x, body.y - y) < 2 * radius + 3)) continue;
-      this.cookies.push({ id: ++this.id, kind, x, y, vx: (this.random() - 0.5) * 38, vy: 0, hp: P0.cookies[kind].hp, stuckMs: 0 });
+      if (this.cookies.some(body => Math.hypot(body.x - x, body.y - y) < this.radiusOf(body) + radius + 3)) continue;
+      this.cookies.push({ id: ++this.id, kind, x, y, vx: (this.random() - 0.5) * 38, vy: 0, hp: P0.cookies[kind].hp, stuckMs: 0,
+        ...(kind === 'NORMAL' || kind === 'HARD' || kind === 'GOLDEN' ? {} : { radius, maxY: y }) });
       this.queue.shift(); this.waveGenerated++; this.wavePotentialSp += P0.cookies[kind].sp;
       this.generatedPotentialSp += P0.cookies[kind].sp; return;
     }
@@ -389,20 +409,40 @@ export class P0Simulation {
     this.events.push({ type: 'destroy', kind: body.kind, x: body.x, y: body.y });
   }
 
+  private detonate(origin: Body) {
+    const queue = [origin], seen = new Set<number>();
+    while (queue.length) {
+      queue.sort((a, b) => a.id - b.id);
+      const bomb = queue.shift()!;
+      if (seen.has(bomb.id) || !this.cookies.includes(bomb)) continue;
+      seen.add(bomb.id);
+      const radius = this.cookieRadius * 3.2;
+      this.destroy(bomb);
+      this.explosions.push({ x: bomb.x, y: bomb.y, radius, remainingMs: 260 });
+      this.events.push({ type: 'explosion', kind: 'BOMB', x: bomb.x, y: bomb.y, radius });
+      for (const body of [...this.cookies].sort((a, b) => a.id - b.id)) {
+        if (Math.hypot(body.x - bomb.x, body.y - bomb.y) > radius + this.radiusOf(body)) continue;
+        if (body.kind === 'BOMB') { if (!seen.has(body.id)) queue.push(body); continue; }
+        body.hp = Math.max(0, body.hp - 6);
+        if (!body.hp) this.destroy(body);
+      }
+    }
+  }
+
   private separateCookies() {
-    const min = 2 * this.cookieRadius;
     for (let pass = 0; pass < 6; pass++) {
       for (let i = 0; i < this.cookies.length; i++) for (let j = i + 1; j < this.cookies.length; j++) {
         const a = this.cookies[i], b = this.cookies[j];
         let dx = b.x - a.x, dy = b.y - a.y;
         let distance = Math.hypot(dx, dy);
+        const min = this.radiusOf(a) + this.radiusOf(b);
         if (distance >= min) continue;
         if (distance < 0.001) { dx = 1; dy = 0; distance = 1; }
         const nx = dx / distance, ny = dy / distance, overlap = (min - distance) / 2;
-        a.x = clamp(a.x - nx * overlap, this.cookieRadius, this.width - this.cookieRadius);
-        b.x = clamp(b.x + nx * overlap, this.cookieRadius, this.width - this.cookieRadius);
-        a.y = Math.max(this.cookieRadius, a.y - ny * overlap);
-        b.y = Math.max(this.cookieRadius, b.y + ny * overlap);
+        a.x = clamp(a.x - nx * overlap, this.radiusOf(a), this.width - this.radiusOf(a));
+        b.x = clamp(b.x + nx * overlap, this.radiusOf(b), this.width - this.radiusOf(b));
+        a.y = Math.max(this.radiusOf(a), a.y - ny * overlap);
+        b.y = Math.max(this.radiusOf(b), b.y + ny * overlap);
         const relative = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
         if (relative < 0) {
           const impulse = -0.7 * relative;
@@ -418,7 +458,7 @@ export class P0Simulation {
     if (!obstacle) return;
     const point = distanceToSegment(body.x, body.y, obstacle.ax, obstacle.ay, obstacle.bx, obstacle.by);
     const dx = body.x - point.x, dy = body.y - point.y, distance = Math.hypot(dx, dy);
-    const min = this.cookieRadius + this.obstacleHalfWidth;
+    const min = this.radiusOf(body) + this.obstacleHalfWidth;
     if (distance >= min) return;
     const nx = distance > 0.001 ? dx / distance : 0, ny = distance > 0.001 ? dy / distance : -1;
     body.x += nx * (min - distance); body.y += ny * (min - distance);
@@ -481,7 +521,7 @@ export class P0Simulation {
     const last = this.waveDurations.at(-1);
     if (this.phase === 'RUNNING' && (last?.attempt !== this.retryCount + 1 || last?.wave !== this.wave + 1))
       this.waveDurations.push({ attempt: this.retryCount + 1, wave: this.wave + 1, durationMs: this.waveTimeMs });
-    this.phase = 'LOST'; this.failureReason = reason; this.removedOnLoss += this.cookies.length; this.cookies.length = 0; this.bullets.length = 0;
+    this.phase = 'LOST'; this.failureReason = reason; this.removedOnLoss += this.cookies.length; this.cookies.length = 0; this.bullets.length = 0; this.explosions.length = 0;
     if (this.boss) this.boss.threats.length = 0;
     this.provisional = 0n; this.release();
   }

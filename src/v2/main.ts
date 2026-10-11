@@ -87,6 +87,9 @@ class CampaignScene extends Phaser.Scene {
     this.load.svg('v2-normal', '/cookie.svg', { width: 96, height: 96 });
     this.load.svg('v2-hard', '/hard-cookie.svg', { width: 96, height: 96 });
     this.load.svg('v2-golden', '/golden-cookie.svg', { width: 96, height: 96 });
+    this.load.svg('v2-reinforced', '/reinforced-cookie.svg', { width: 96, height: 96 });
+    this.load.svg('v2-titan', '/titan-cookie.svg', { width: 96, height: 96 });
+    this.load.svg('v2-bomb', '/bomb-cookie.svg', { width: 96, height: 96 });
     for (const id of ['barbarian', 'knight', 'berserker', 'cookieng']) this.load.svg(`v2-boss-${id}`, `/boss-${id}.svg`, { width: 192, height: 192 });
     this.load.svg('v2-boss-cookieng-golden', '/boss-cookieng-golden.svg', { width: 192, height: 192 });
     this.load.svg('v2-boss-berserker-rage', '/boss-berserker-rage.svg', { width: 192, height: 192 });
@@ -127,6 +130,7 @@ class CampaignScene extends Phaser.Scene {
     if (obstacle) this.graphics.lineStyle(2 * sim.obstacleHalfWidth, 0x75503b).lineBetween(obstacle.ax, obstacle.ay, obstacle.bx, obstacle.by);
     this.graphics.fillStyle(0x4b2d23).fillRect(0, sim.groundY, w, h - sim.groundY);
     for (const bullet of sim.bullets) this.graphics.fillStyle(0x68402e).fillCircle(bullet.x, bullet.y, sim.bulletRadius);
+    for (const blast of sim.explosions) this.graphics.lineStyle(4, 0xc93121, Math.min(1, blast.remainingMs / 180)).strokeCircle(blast.x, blast.y, blast.radius);
     const boss = sim.boss;
     this.bossSprite.setVisible(!!boss && sim.phase === 'BOSS_FIGHT');
     if (boss && sim.phase === 'BOSS_FIGHT') {
@@ -147,12 +151,12 @@ class CampaignScene extends Phaser.Scene {
     const length = Math.hypot(ax, ay) || 1;
     this.aim.lineStyle(3, 0x56372c).lineBetween(sim.cannonX, sim.cannonY, sim.cannonX + ax / length * sim.cookieRadius * 2.2, sim.cannonY + ay / length * sim.cookieRadius * 2.2);
     const present = new Set<number>();
-    for (const body of [...sim.cookies.map(cookie => ({ ...cookie, radius: sim.cookieRadius, signal: false })), ...(boss?.threats ?? []).map(threat => ({ ...threat, id: threat.id + 10_000 }))]) {
+    for (const body of [...sim.cookies.map(cookie => ({ ...cookie, radius: cookie.radius ?? sim.cookieRadius, signal: false })), ...(boss?.threats ?? []).map(threat => ({ ...threat, id: threat.id + 10_000 }))]) {
       present.add(body.id);
       let sprite = this.sprites.get(body.id);
       if (!sprite) { sprite = this.add.image(body.x, body.y, `v2-${body.kind.toLowerCase()}`); this.sprites.set(body.id, sprite); }
       sprite.setPosition(body.x, body.y).setDisplaySize(2 * body.radius, 2 * body.radius);
-      if (body.kind === 'HARD' || body.signal) {
+      if (body.kind === 'HARD' || body.kind === 'REINFORCED' || body.kind === 'TITAN' || body.signal) {
         let label = this.labels.get(body.id);
         if (!label) { label = this.add.text(body.x, body.y, '', { fontFamily: 'system-ui', fontSize: '14px', color: '#ffffff', stroke: '#301f19', strokeThickness: 3 }).setOrigin(0.5); this.labels.set(body.id, label); }
         label.setPosition(body.x, body.y).setText(`${body.signal ? '!' : ''}${body.hp}`);

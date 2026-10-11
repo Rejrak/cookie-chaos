@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { P0Simulation } from '../p0/sim';
+import { COOKIE_KINDS } from '../p0/config';
 import { KINGDOM_ONE, validateStage } from './stages';
 
 describe('Kingdom I configurations', () => {
@@ -23,7 +24,7 @@ describe('Kingdom I configurations', () => {
     sim.startWave();
     sim.advance(40_000);
     const budget = sim.waveBudgets[0];
-    expect(budget.scheduled).toBe(stage.waves[0].NORMAL + stage.waves[0].HARD + stage.waves[0].GOLDEN);
+    expect(budget.scheduled).toBe(COOKIE_KINDS.reduce((sum, kind) => sum + (stage.waves[0][kind] ?? 0), 0));
     expect(budget.generated + budget.unspawned).toBe(budget.scheduled);
     expect(budget.potentialSp).toBe(sim.generatedPotentialSp);
     expect(sim.unspawned.NORMAL + sim.unspawned.HARD + sim.unspawned.GOLDEN).toBe(budget.unspawned);
@@ -36,9 +37,9 @@ describe('Kingdom I configurations', () => {
       for (let i = 0; i < stage.waves.length; i++) {
         sim.startWave(); sim.advance(60_000);
       }
-      expect(sim.generatedPotentialSp, `stage ${stage.id}, width ${width}, seed ${seed}`).toBeGreaterThan(stage.targetSp);
+      expect(sim.generatedPotentialSp, `stage ${stage.id}, width ${width}, seed ${seed}: ${JSON.stringify({ phase: sim.phase, wave: sim.wave, queue: sim.unspawned, cookies: sim.cookies, budgets: sim.waveBudgets })}`).toBeGreaterThan(stage.targetSp);
       expect(sim.waveBudgets.reduce((sum, wave) => sum + wave.generated + wave.unspawned, 0))
-        .toBe(stage.waves.reduce((sum, wave) => sum + wave.NORMAL + wave.HARD + wave.GOLDEN, 0));
+        .toBe(stage.waves.reduce((sum, wave) => sum + COOKIE_KINDS.reduce((total, kind) => total + (wave[kind] ?? 0), 0), 0));
     }
   });
 

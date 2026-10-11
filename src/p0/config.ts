@@ -1,9 +1,10 @@
-export type CookieKind = 'NORMAL' | 'HARD' | 'GOLDEN';
+export type CookieKind = 'NORMAL' | 'HARD' | 'GOLDEN' | 'REINFORCED' | 'TITAN' | 'BOMB';
+export const COOKIE_KINDS: readonly CookieKind[] = ['NORMAL', 'HARD', 'GOLDEN', 'REINFORCED', 'TITAN', 'BOMB'];
 export type ArenaKind = 'FREE' | 'OBSTACLE';
-export type ShooterRules = { targetSp: number; waves: readonly Record<CookieKind, number>[];
+export type ShooterRules = { targetSp: number; waves: readonly Partial<Record<CookieKind, number>>[];
   spawnMs: number; waveMs: number; maxActive: number; bossCheckpoint: boolean;
   bossId?: 'barbarian' | 'knight' | 'berserker' | 'cookieng';
-  fallSeconds?: Record<CookieKind, number> };
+  fallSeconds?: Partial<Record<CookieKind, number>> };
 
 export const P0 = {
   stepMs: 1000 / 120,
@@ -33,6 +34,9 @@ export const P0 = {
     NORMAL: { hp: 1, sp: 1, reward: 1n, groundDamage: 1 },
     HARD: { hp: 3, sp: 3, reward: 6n, groundDamage: 1 },
     GOLDEN: { hp: 1, sp: 5, reward: 5n, groundDamage: 0 },
+    REINFORCED: { hp: 6, sp: 5, reward: 9n, groundDamage: 1 },
+    TITAN: { hp: 12, sp: 8, reward: 16n, groundDamage: 2 },
+    BOMB: { hp: 1, sp: 0, reward: 0n, groundDamage: 3 },
   },
 } as const;
 
