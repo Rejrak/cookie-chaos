@@ -1,9 +1,10 @@
 import { P0, seededRandom, type ArenaKind, type CookieKind, type ShooterRules } from './config';
+import { BossEncounter, type BossThreat } from '../v2/boss';
 
 export type Body = { id: number; kind: CookieKind; x: number; y: number; vx: number; vy: number; hp: number; stuckMs: number };
 export type Bullet = { x: number; y: number; vx: number; vy: number; lifeMs: number; bounces: number };
-export type Phase = 'PREP' | 'RUNNING' | 'WON' | 'LOST' | 'AWAITING_BOSS_IMPLEMENTATION';
-export type Event = { type: 'destroy' | 'escape' | 'hit' | 'shot' | 'bounce'; kind?: CookieKind; x?: number; y?: number };
+export type Phase = 'PREP' | 'RUNNING' | 'WON' | 'LOST' | 'AWAITING_BOSS_IMPLEMENTATION' | 'BOSS_INTRO' | 'BOSS_FIGHT' | 'BOSS_CLEANUP';
+export type Event = { type: 'destroy' | 'escape' | 'hit' | 'shot' | 'bounce' | 'boss-hit' | 'boss-block' | 'threat-hit' | 'threat-destroy'; kind?: CookieKind; x?: number; y?: number };
 
 function clamp(value: number, low: number, high: number) { return Math.min(high, Math.max(low, value)); }
 function distanceToSegment(x: number, y: number, ax: number, ay: number, bx: number, by: number) {
@@ -29,6 +30,7 @@ export class P0Simulation {
   readonly events: Event[] = [];
   readonly cookies: Body[] = [];
   readonly bullets: Bullet[] = [];
+  boss: BossEncounter | null = null;
   readonly destroyed: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
   readonly escaped: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
   readonly waveDurations: { attempt: number; wave: number; durationMs: number }[] = [];
@@ -92,6 +94,7 @@ export class P0Simulation {
   }
 
   get obstacle() {
+    if (this.phase === 'BOSS_INTRO' || this.phase === 'BOSS_FIGHT' || this.phase === 'BOSS_CLEANUP') return null;
     return this.arena === 'OBSTACLE' ? {
       ax: this.width * 0.17, ay: this.height * 0.43,
       bx: this.width * 0.48, by: this.height * 0.36,
@@ -160,6 +163,15 @@ export class P0Simulation {
     return true;
   }
 
+  startBoss(): boolean {
+    if (this.phase !== 'BOSS_INTRO' || !this.rules.bossId) return false;
+    this.boss = new BossEncounter(this.rules.bossId, (this.seed ^ 0xb055) >>> 0);
+    this.boss.resize(this.width, this.height);
+    this.phase = 'BOSS_FIGHT';
+    this.fireElapsed = 1000 / this.fireRate;
+    return true;
+  }
+
   retry(): boolean {
     if (this.phase !== 'LOST') return false;
     this.retryCount++;
@@ -170,6 +182,7 @@ export class P0Simulation {
     this.recoveryCount = 0;
     this.cookies.length = 0;
     this.bullets.length = 0;
+    this.boss = null;
     this.queue = [];
     this.accumulator = 0;
     this.phase = 'PREP';
@@ -181,6 +194,7 @@ export class P0Simulation {
     if (width < 160 || height < 150) return;
     const sx = width / this.width, sy = height / this.height;
     this.width = width; this.height = height;
+    this.boss?.resize(width, height);
     const radius = this.cookieRadius;
     for (const body of this.cookies) {
       body.x = clamp(body.x * sx, radius, width - radius);
@@ -194,11 +208,11 @@ export class P0Simulation {
 
   advance(deltaMs: number) {
     this.events.length = 0;
-    if (this.phase !== 'RUNNING' || !Number.isFinite(deltaMs) || deltaMs < 0) return;
+    if (!['RUNNING', 'BOSS_FIGHT', 'BOSS_CLEANUP'].includes(this.phase) || !Number.isFinite(deltaMs) || deltaMs < 0) return;
     this.accumulator += deltaMs;
-    while (this.accumulator + 1e-7 >= P0.stepMs && this.phase === 'RUNNING') {
+    while (this.accumulator + 1e-7 >= P0.stepMs && (this.phase === 'RUNNING' || this.phase === 'BOSS_FIGHT' || this.phase === 'BOSS_CLEANUP')) {
       this.step(P0.stepMs);
-      if (this.phase !== 'RUNNING') { this.accumulator = 0; break; }
+      if (this.phase !== 'RUNNING' && this.phase !== 'BOSS_FIGHT' && this.phase !== 'BOSS_CLEANUP') { this.accumulator = 0; break; }
       this.accumulator -= P0.stepMs;
     }
   }
@@ -206,6 +220,7 @@ export class P0Simulation {
   private step(ms: number) {
     const dt = ms / 1000;
     this.totalTimeMs += ms;
+    if (this.phase === 'RUNNING') {
     this.waveTimeMs += ms;
     this.spawnElapsed += ms;
     this.fireElapsed += ms;
@@ -224,7 +239,7 @@ export class P0Simulation {
 
     for (const body of this.cookies) {
       const fallDistance = Math.max(30, this.groundY - 2 * this.cookieRadius);
-      const fallSeconds = P0.fallSeconds[body.kind];
+      const fallSeconds = this.rules.fallSeconds?.[body.kind] ?? P0.fallSeconds[body.kind];
       const gravity = 2 * fallDistance / (fallSeconds * fallSeconds);
       const terminal = 2.4 * fallDistance / fallSeconds;
       body.vy = Math.min(terminal, body.vy + gravity * dt);
@@ -253,6 +268,15 @@ export class P0Simulation {
         if (!this.hp) { this.lose(); return; }
       }
     }
+    } else if (this.boss) {
+      const result = this.boss.tick(ms, this.groundY);
+      if (result.timeout) { this.lose(); return; }
+      if (result.damage) {
+        this.hp = Math.max(0, this.hp - result.damage); this.damageTaken += result.damage;
+        this.events.push({ type: 'escape' });
+        if (!this.hp) { this.lose(); return; }
+      }
+    }
 
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const bullet = this.bullets[i];
@@ -262,7 +286,8 @@ export class P0Simulation {
         const x0 = bullet.x, y0 = bullet.y, dx = bullet.vx * remaining, dy = bullet.vy * remaining;
         const x1 = x0 + dx, y1 = y0 + dy;
         let earliest = 1.000001;
-        let target: Body | null = null;
+        let target: Body | BossThreat | null = null;
+        let bossTarget = false;
         let surface: 'obstacle' | 'wall' | 'edge' | null = null;
         let nx = 0, ny = 0;
         const obstacle = this.obstacleHit(x0, y0, x1, y1);
@@ -275,15 +300,38 @@ export class P0Simulation {
           const t = sweepCircle(x0, y0, x1, y1, body.x, body.y, this.cookieRadius + this.bulletRadius);
           if (t !== null && t < earliest - 1e-8) { earliest = t; target = body; surface = null; }
         }
+        if (this.boss) {
+          for (const threat of this.boss.threats) {
+            const t = sweepCircle(x0, y0, x1, y1, threat.x, threat.y, threat.radius + this.bulletRadius);
+            if (t !== null && t < earliest - 1e-8) { earliest = t; target = threat; surface = null; bossTarget = false; }
+          }
+          if (this.phase === 'BOSS_FIGHT') {
+            const spot = this.boss.target;
+            const t = sweepCircle(x0, y0, x1, y1, spot.x, spot.y, spot.radius + this.bulletRadius);
+            if (t !== null && t < earliest - 1e-8) { earliest = t; target = null; surface = null; bossTarget = true; }
+          }
+        }
         if (earliest > 1) { bullet.x = x1; bullet.y = y1; break; }
         bullet.x = x0 + dx * earliest; bullet.y = y0 + dy * earliest;
         if (target) {
           this.bullets.splice(i, 1); removed = true;
           this.hits++;
           if (bullet.bounces) this.ricochetHits++;
-          this.events.push({ type: 'hit', kind: target.kind, x: target.x, y: target.y });
+          this.events.push({ type: 'damage' in target ? 'threat-hit' : 'hit', kind: target.kind, x: target.x, y: target.y });
           target.hp = Math.max(0, target.hp - this.damage);
-          if (!target.hp) this.destroy(target);
+          if (!target.hp) {
+            if ('damage' in target && this.boss) {
+              this.provisional += this.boss.intercept(target);
+              this.events.push({ type: 'threat-destroy', kind: target.kind, x: target.x, y: target.y });
+            } else this.destroy(target as Body);
+          }
+          break;
+        }
+        if (bossTarget && this.boss) {
+          this.bullets.splice(i, 1); removed = true; this.hits++;
+          const result = this.boss.takeHit(this.damage);
+          this.events.push({ type: result.dealt ? 'boss-hit' : 'boss-block', x: bullet.x, y: bullet.y });
+          if (result.defeated) { this.phase = 'BOSS_CLEANUP'; this.boss.warningMs = 0; }
           break;
         }
         if (surface === 'edge') { this.bullets.splice(i, 1); removed = true; break; }
@@ -298,7 +346,11 @@ export class P0Simulation {
       }
       if (!removed && bullet.lifeMs <= 0) this.bullets.splice(i, 1);
     }
-    if (!this.queue.length && !this.cookies.length) this.finishWave();
+    if (this.phase === 'RUNNING' && !this.queue.length && !this.cookies.length) this.finishWave();
+    if (this.phase === 'BOSS_CLEANUP' && this.boss && !this.boss.threats.length) {
+      this.phase = 'WON'; this.consolidated += this.provisional + this.boss.config.victoryReward;
+      this.provisional = 0n; this.bullets.length = 0; this.release();
+    }
   }
 
   private spawn() {
@@ -409,7 +461,7 @@ export class P0Simulation {
     this.bullets.length = 0;
     if (this.wave < this.rules.waves.length - 1) { this.phase = 'PREP'; return; }
     if (this.sp >= this.rules.targetSp) {
-      if (this.rules.bossCheckpoint) { this.phase = 'AWAITING_BOSS_IMPLEMENTATION'; return; }
+      if (this.rules.bossCheckpoint) { this.phase = this.rules.bossId ? 'BOSS_INTRO' : 'AWAITING_BOSS_IMPLEMENTATION'; return; }
       this.phase = 'WON'; this.consolidated += this.provisional; this.provisional = 0n; return;
     }
     if (this.recoveryCount >= 2) { this.lose(); return; }
@@ -417,24 +469,26 @@ export class P0Simulation {
   }
 
   private lose() {
+    const wasRunning = this.phase === 'RUNNING';
     if (this.queue.length) {
       for (const kind of this.queue) this.unspawned[kind]++;
       this.queue.length = 0;
     }
-    if (this.waveBudgets.at(-1)?.attempt !== this.retryCount + 1 || this.waveBudgets.at(-1)?.wave !== this.wave + 1)
+    if (wasRunning && (this.waveBudgets.at(-1)?.attempt !== this.retryCount + 1 || this.waveBudgets.at(-1)?.wave !== this.wave + 1))
       this.waveBudgets.push({ attempt: this.retryCount + 1, wave: this.wave + 1, scheduled: this.waveScheduled, generated: this.waveGenerated,
         unspawned: this.waveScheduled - this.waveGenerated, potentialSp: this.wavePotentialSp });
     const last = this.waveDurations.at(-1);
     if (this.phase === 'RUNNING' && (last?.attempt !== this.retryCount + 1 || last?.wave !== this.wave + 1))
       this.waveDurations.push({ attempt: this.retryCount + 1, wave: this.wave + 1, durationMs: this.waveTimeMs });
     this.phase = 'LOST'; this.removedOnLoss += this.cookies.length; this.cookies.length = 0; this.bullets.length = 0;
+    if (this.boss) this.boss.threats.length = 0;
     this.provisional = 0n; this.release();
   }
 
   metrics() {
     return {
       seed: this.seed, arena: this.arena, initialCredit: this.initialCredit.toString(),
-      config: { targetSp: this.rules.targetSp, maxHp: this.maxHp, ordinaryWaveMs: this.rules.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: this.rules.spawnMs,
+      config: { targetSp: this.rules.targetSp, maxHp: this.maxHp, ordinaryWaveMs: this.rules.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: this.rules.spawnMs, fallSeconds: this.rules.fallSeconds ?? P0.fallSeconds,
         cookieRadius: this.cookieRadius, bulletRadius: this.bulletRadius, projectileSpeed: this.projectileSpeed },
       viewport: { width: this.width, height: this.height },
       phase: this.phase, wave: this.waveLabel, waveDurationsMs: this.waveDurations,
@@ -447,6 +501,7 @@ export class P0Simulation {
       retries: this.retryCount, recoveryWaves: this.recoveryCount, totalRecoveryWaves: this.totalRecoveryWaves,
       rejectedSpawns: this.rejectedSpawns, removedOnLoss: this.removedOnLoss,
       waveBudgets: this.waveBudgets, generatedPotentialSp: this.generatedPotentialSp, unspawned: this.unspawned,
+      boss: this.boss?.metrics() ?? null,
     };
   }
 }

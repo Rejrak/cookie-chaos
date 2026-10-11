@@ -1,7 +1,9 @@
 export type CookieKind = 'NORMAL' | 'HARD' | 'GOLDEN';
 export type ArenaKind = 'FREE' | 'OBSTACLE';
 export type ShooterRules = { targetSp: number; waves: readonly Record<CookieKind, number>[];
-  spawnMs: number; waveMs: number; maxActive: number; bossCheckpoint: boolean };
+  spawnMs: number; waveMs: number; maxActive: number; bossCheckpoint: boolean;
+  bossId?: 'barbarian' | 'knight' | 'berserker' | 'cookieng';
+  fallSeconds?: Record<CookieKind, number> };
 
 export const P0 = {
   stepMs: 1000 / 120,

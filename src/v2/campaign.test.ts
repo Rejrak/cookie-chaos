@@ -32,10 +32,10 @@ describe('V2 campaign', () => {
     expect(game.continue()).toBe(false);
   });
 
-  it('keeps stage 3 boss checkpoint pending without awarding victory or unlocking stage 4', () => {
+  it('prepares stage 3 boss without awarding victory or unlocking stage 4', () => {
     const game = new Campaign(390, 550, null, 3);
     for (let i = 0; i < 3; i++) { game.startWave(); clearWave(game); }
-    expect(game.sim.phase).toBe('AWAITING_BOSS_IMPLEMENTATION');
+    expect(game.sim.phase).toBe('BOSS_INTRO');
     expect(game.state.stage).toBe(3);
     expect(game.state.highestCompleted).toBe(0);
     expect(game.balance).toBe(0n);
@@ -55,7 +55,7 @@ describe('V2 campaign', () => {
     expect(game.sim.provisional).toBe(0n);
     expect(game.startWave()).toBe(false);
   });
-  it('advances 1 → 2 → 3 without a skip, then blocks official progress at the boss gate', () => {
+  it('advances 1 → 2 → 3 without a skip, then requires the boss fight', () => {
     const game = new Campaign(390, 550);
     for (const stageId of [1, 2]) {
       expect(game.stageId).toBe(stageId);
@@ -67,7 +67,7 @@ describe('V2 campaign', () => {
     expect(game.stageId).toBe(3);
     expect(game.state.highestCompleted).toBe(2);
     for (let i = 0; i < 3; i++) { game.startWave(); clearWave(game); }
-    expect(game.sim.phase).toBe('AWAITING_BOSS_IMPLEMENTATION');
+    expect(game.sim.phase).toBe('BOSS_INTRO');
     expect(game.state.stage).toBe(3);
     expect(game.canShop).toBe(true);
     expect(game.continue()).toBe(false);
