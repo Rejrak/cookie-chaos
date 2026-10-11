@@ -53,7 +53,7 @@ export class BossEncounter {
   get remainingMs() { return Math.max(0, this.config.timerMs - this.timeMs); }
   get warning() { return this.warningMs > 0; }
   get target() {
-    const radius = Math.max(20, Math.min(55, this.width * 0.105, this.height * 0.13));
+    const radius = Math.max(24, Math.min(55, this.width * 0.105, this.height * 0.16));
     const amplitude = this.width * (this.config.id === 'knight' ? 0.1 : this.config.id === 'berserker' ? 0.2 : 0.15);
     const speed = this.config.id === 'berserker' ? 0.0014 : 0.0008;
     return { x: this.width / 2 + Math.sin(this.timeMs * speed) * amplitude,

@@ -72,6 +72,12 @@ describe('P2 boss encounters', () => {
     expect(boss.intercept(threat)).toBe(0n);
     expect(game.sim.sp).toBe(34);
     expect(boss.rewardPaid).toBeLessThanOrEqual(boss.config.rewardBudget);
+    for (let id = 200; id < 220; id++) {
+      const extra = { ...threat, id, reward: 10n };
+      boss.threats.push(extra);
+      boss.intercept(extra);
+    }
+    expect(boss.rewardPaid).toBe(boss.config.rewardBudget);
   });
   it('intercepts hostile cookies with cannon bullets and never grants Stage Points', () => {
     const game = gameBoss(3), boss = game.sim.boss!;
@@ -131,6 +137,18 @@ describe('P2 boss encounters', () => {
     game.advance(5_000); expect(game.balance).toBe(45n); expect(game.state.hp).toBe(4);
     expect(game.continue()).toBe(true); expect(game.stageId).toBe(4);
     expect(game.continue()).toBe(false);
+  });
+  it('also confirms cleanup victory after a remaining threat lands while the base survives', () => {
+    const game = gameBoss(3), boss = game.sim.boss!;
+    boss.threats.push({ id: 9, kind: 'NORMAL', x: 20, y: game.sim.groundY - 15, vx: 0, vy: 100,
+      hp: 1, radius: 14, damage: 1, reward: 1n, signal: false });
+    shootBoss(game, 16);
+    expect(game.sim.phase).toBe('BOSS_CLEANUP');
+    game.advance(100);
+    expect(game.sim.phase).toBe('WON');
+    expect(boss.landed).toBe(1);
+    expect(game.state.hp).toBe(5);
+    expect(game.balance).toBe(boss.config.victoryReward);
   });
   it('times out independently of waves and allows Retry from the collection phase', () => {
     const game = gameBoss(6); game.sim.hp = 100;
