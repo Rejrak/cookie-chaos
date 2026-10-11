@@ -4,10 +4,10 @@ export type BossId = 'barbarian' | 'knight' | 'berserker' | 'cookieng';
 export type BossThreat = { id: number; kind: CookieKind; x: number; y: number; vx: number; vy: number; hp: number; radius: number; damage: number; reward: bigint; signal: boolean };
 export type BossConfig = { id: BossId; name: string; hp: number; guard: number; timerMs: number; intervalMs: number; warningMs: number; rewardBudget: bigint; victoryReward: bigint };
 export const BOSSES: Record<BossId, BossConfig> = {
-  barbarian: { id: 'barbarian', name: 'Cookie Barbarian', hp: 16, guard: 0, timerMs: 48_000, intervalMs: 5_000, warningMs: 1_200, rewardBudget: 30n, victoryReward: 35n },
-  knight: { id: 'knight', name: 'Cookie Knight', hp: 20, guard: 8, timerMs: 58_000, intervalMs: 4_800, warningMs: 1_200, rewardBudget: 45n, victoryReward: 55n },
-  berserker: { id: 'berserker', name: 'Cookie Berserker', hp: 26, guard: 0, timerMs: 62_000, intervalMs: 4_500, warningMs: 1_000, rewardBudget: 55n, victoryReward: 75n },
-  cookieng: { id: 'cookieng', name: 'The Cookieng', hp: 32, guard: 10, timerMs: 78_000, intervalMs: 4_800, warningMs: 1_300, rewardBudget: 75n, victoryReward: 120n },
+  barbarian: { id: 'barbarian', name: 'Cookie Barbarian', hp: 65, guard: 18, timerMs: 48_000, intervalMs: 3_800, warningMs: 1_200, rewardBudget: 30n, victoryReward: 35n },
+  knight: { id: 'knight', name: 'Cookie Knight', hp: 75, guard: 28, timerMs: 58_000, intervalMs: 4_000, warningMs: 1_200, rewardBudget: 45n, victoryReward: 55n },
+  berserker: { id: 'berserker', name: 'Cookie Berserker', hp: 100, guard: 0, timerMs: 62_000, intervalMs: 3_700, warningMs: 1_000, rewardBudget: 55n, victoryReward: 75n },
+  cookieng: { id: 'cookieng', name: 'The Cookieng', hp: 130, guard: 40, timerMs: 78_000, intervalMs: 4_000, warningMs: 1_300, rewardBudget: 75n, victoryReward: 120n },
 };
 
 // Boss logic uses only the fixed simulation clock; Phaser draws this state without owning it.
@@ -18,9 +18,10 @@ export class BossEncounter {
   guard: number;
   timeMs = 0;
   warningMs = 0;
-  nextAttackMs = 2_500;
+  nextAttackMs = 0;
   vulnerabilityMs = 0;
   attacks = 0;
+  firstAttackMs = 0;
   intercepted = 0;
   landed = 0;
   damageDealt = 0;
@@ -52,6 +53,11 @@ export class BossEncounter {
   }
   get remainingMs() { return Math.max(0, this.config.timerMs - this.timeMs); }
   get warning() { return this.warningMs > 0; }
+  get warningLaneX() {
+    if (!this.warning) return null;
+    const lane = this.pattern % 2 ? 0.78 : 0.22;
+    return this.width * lane;
+  }
   get target() {
     const radius = Math.max(24, Math.min(55, this.width * 0.105, this.height * 0.16));
     const amplitude = this.width * (this.config.id === 'knight' ? 0.1 : this.config.id === 'berserker' ? 0.2 : 0.15);
@@ -107,29 +113,31 @@ export class BossEncounter {
       radius, damage: kind === 'HARD' ? 2 : 1, reward, signal });
   }
   private attack() {
-    const { x } = this.target, r = Math.max(11, Math.min(24, this.width * 0.055));
+    const r = Math.max(11, Math.min(24, this.width * 0.055));
     const travel = Math.max(20, this.height - 35 - (this.target.y + this.target.radius + r * 2 + 7));
     const speed = Math.min(this.height * 0.18, Math.max(12, travel / 2.4));
     const id = this.config.id, pattern = this.pattern++;
+    const lane = this.width * (pattern % 2 ? 0.78 : 0.22);
     if (id === 'barbarian') {
-      if (pattern % 2 === 0) this.spawn('HARD', x + (this.random() - 0.5) * this.width * 0.4, r * 1.3, true, speed * 0.8);
-      else for (const offset of [-0.22, 0, 0.22]) this.spawn('NORMAL', x + this.width * offset, r, false, speed * 1.15);
+      if (pattern % 2 === 0) this.spawn('HARD', lane, r * 1.3, true, speed * 0.8);
+      else for (const fraction of [0.18, 0.5, 0.82]) this.spawn('NORMAL', this.width * fraction, r, false, speed * 1.15);
     } else if (id === 'knight') {
-      this.spawn('HARD', x + (pattern % 2 ? -1 : 1) * this.width * 0.2, r, true, speed);
-      if (pattern % 2) this.spawn('NORMAL', x + this.width * 0.1, r, false, speed * 1.1);
+      this.spawn('HARD', lane, r, true, speed);
+      if (pattern % 2) this.spawn('NORMAL', this.width * 0.5, r, false, speed * 1.1);
     } else if (id === 'berserker') {
-      const offsets = this.phase === 'RAGE' ? [-0.25, 0, 0.25] : [-0.17, 0.17];
-      for (const offset of offsets) this.spawn('NORMAL', x + this.width * offset, r * 0.85, false, speed * (this.phase === 'RAGE' ? 1.4 : 1.15));
+      const lanes = this.phase === 'RAGE' ? [0.16, 0.5, 0.84] : pattern % 2 ? [0.24, 0.76] : [0.5, 0.82];
+      for (const fraction of lanes) this.spawn('NORMAL', this.width * fraction, r * 0.85, false, speed * (this.phase === 'RAGE' ? 1.4 : 1.15));
       this.vulnerabilityMs = this.phase === 'RAGE' ? 1_000 : 1_600; this.windows++;
     } else if (this.phase === 'ROYAL CROWN') {
-      this.spawn('HARD', x - this.width * 0.18, r, true, speed);
-      this.spawn('NORMAL', x + this.width * 0.18, r, false, speed * 1.2);
+      this.spawn('HARD', lane, r, true, speed);
+      this.spawn('NORMAL', this.width * (pattern % 2 ? 0.22 : 0.78), r, false, speed * 1.2);
     } else {
-      if (pattern % 2 === 0) this.spawn('HARD', x, r * 1.15, true, speed * 1.1);
-      for (const offset of [-0.21, 0.21]) this.spawn('NORMAL', x + this.width * offset, r * 0.85, false, speed * 1.35);
+      if (pattern % 2 === 0) this.spawn('HARD', lane, r * 1.15, true, speed * 1.1);
+      for (const fraction of [0.2, 0.8]) this.spawn('NORMAL', this.width * fraction, r * 0.85, false, speed * 1.35);
       this.vulnerabilityMs = 1_200; this.windows++;
     }
     this.attacks++;
+    if (this.attacks === 1) this.firstAttackMs = this.timeMs;
   }
   tick(ms: number, groundY: number): { damage: number; timeout: boolean } {
     if (this.hp <= 0) { this.cleanupMs += ms; return this.moveThreats(ms, groundY); }
@@ -158,7 +166,7 @@ export class BossEncounter {
     return { damage, timeout: false };
   }
   metrics() { return { id: this.config.id, phase: this.phase, hp: this.hp, guard: this.guard, timeMs: this.timeMs,
-    cleanupMs: this.cleanupMs, attacks: this.attacks, intercepted: this.intercepted, landed: this.landed,
+    cleanupMs: this.cleanupMs, attacks: this.attacks, firstAttackMs: this.firstAttackMs, intercepted: this.intercepted, landed: this.landed,
     damageDealt: this.damageDealt, blocked: this.blocked, windows: this.windows, rewardPaid: this.rewardPaid.toString(),
     rewardBudgetLeft: (this.config.rewardBudget - this.rewardPaid).toString(), phaseDurations: this.phaseDurations }; }
 }

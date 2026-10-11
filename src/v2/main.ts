@@ -91,6 +91,7 @@ class CampaignScene extends Phaser.Scene {
     this.load.svg('v2-boss-cookieng-golden', '/boss-cookieng-golden.svg', { width: 192, height: 192 });
     this.load.svg('v2-boss-berserker-rage', '/boss-berserker-rage.svg', { width: 192, height: 192 });
     this.load.svg('v2-boss-knight-exposed', '/boss-knight-exposed.svg', { width: 192, height: 192 });
+    this.load.svg('v2-boss-barbarian-exposed', '/boss-barbarian-exposed.svg', { width: 192, height: 192 });
   }
   create() {
     this.graphics = this.add.graphics(); this.aim = this.add.graphics();
@@ -131,10 +132,15 @@ class CampaignScene extends Phaser.Scene {
     if (boss && sim.phase === 'BOSS_FIGHT') {
       const spot = boss.target;
       const variant = boss.phase === 'RAGE' ? 'berserker-rage' : boss.phase === 'GOLDEN FORM' ? 'cookieng-golden' :
-        boss.config.id === 'knight' && boss.guard === 0 ? 'knight-exposed' : boss.config.id;
+        boss.config.id === 'knight' && boss.guard === 0 ? 'knight-exposed' :
+        boss.config.id === 'barbarian' && boss.guard === 0 ? 'barbarian-exposed' : boss.config.id;
       this.bossSprite.setTexture(`v2-boss-${variant}`).setPosition(spot.x, spot.y).setDisplaySize(spot.radius * 2, spot.radius * 2);
       this.graphics.lineStyle(3, boss.warning ? 0xc93121 : boss.vulnerabilityMs ? 0x1d9581 : 0x60432b).strokeCircle(spot.x, spot.y, spot.radius + 5);
       if (boss.warning) this.graphics.fillStyle(0xc93121).fillTriangle(spot.x - 8, spot.y - spot.radius - 9, spot.x + 8, spot.y - spot.radius - 9, spot.x, spot.y - spot.radius - 25);
+      if (boss.warningLaneX !== null) {
+        this.graphics.lineStyle(3, 0xc93121, 0.85).lineBetween(boss.warningLaneX, spot.y + spot.radius, boss.warningLaneX, sim.groundY - 10);
+        this.graphics.fillStyle(0xc93121).fillTriangle(boss.warningLaneX - 8, sim.groundY - 14, boss.warningLaneX + 8, sim.groundY - 14, boss.warningLaneX, sim.groundY - 3);
+      }
     }
     this.graphics.fillStyle(0x8b5b3d).fillCircle(sim.cannonX, sim.cannonY, sim.cookieRadius);
     const aim = sim.aimPoint, ax = aim.x - sim.cannonX, ay = aim.y - sim.cannonY;

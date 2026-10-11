@@ -27,46 +27,48 @@ describe('P2 boss encounters', () => {
     for (const id of Object.keys(BOSSES) as (keyof typeof BOSSES)[]) {
       const a = new BossEncounter(id, 77), b = new BossEncounter(id, 77);
       a.resize(390, 550); b.resize(390, 550);
-      step(a, 4_000); step(b, 4_000);
+      step(a, 1_500); step(b, 1_500);
       expect(a.metrics()).toEqual(b.metrics());
       expect(a.attacks).toBeGreaterThan(0);
       expect(a.threats.length).toBeGreaterThan(0);
-      expect(a.timeMs).toBeCloseTo(4_000);
+      expect(a.timeMs).toBeCloseTo(1_500);
+      expect(a.firstAttackMs).toBeGreaterThanOrEqual(a.config.warningMs);
+      expect(a.firstAttackMs).toBeLessThan(1_500);
     }
   });
   it('alternates Barbarian armored threats and Normal bursts', () => {
     const boss = new BossEncounter('barbarian', 2); boss.resize(390, 550);
-    step(boss, 4_000); expect(boss.threats.map(t => t.kind)).toContain('HARD');
-    step(boss, 6_100); expect(boss.threats.map(t => t.kind)).toContain('NORMAL');
+    step(boss, 1_500); expect(boss.threats.map(t => t.kind)).toContain('HARD');
+    step(boss, 5_100); expect(boss.threats.map(t => t.kind)).toContain('NORMAL');
   });
   it('Knight guard absorbs shots; interception opens a real damage window', () => {
     const boss = new BossEncounter('knight', 2); boss.resize(390, 550);
     expect(boss.takeHit(3)).toEqual({ dealt: 0, blocked: 3, defeated: false });
-    expect(boss.hp).toBe(20); expect(boss.guard).toBe(5);
-    step(boss, 4_000);
+    expect(boss.hp).toBe(BOSSES.knight.hp); expect(boss.guard).toBe(BOSSES.knight.guard - 3);
+    step(boss, 1_500);
     const signal = boss.threats.find(t => t.signal)!;
     expect(boss.intercept(signal)).toBe(6n);
     expect(boss.vulnerabilityMs).toBeGreaterThan(0);
     expect(boss.takeHit(2).dealt).toBe(4);
-    expect(boss.guard).toBe(5);
+    expect(boss.guard).toBe(BOSSES.knight.guard - 3);
     step(boss, 3_300);
     expect(boss.takeHit(1).blocked).toBe(1);
   });
   it('Berserker rage changes the volley, and Cookieng crown gates Golden Form', () => {
     const berserker = new BossEncounter('berserker', 2); berserker.resize(390, 550);
-    berserker.takeHit(13); expect(berserker.phase).toBe('RAGE');
-    expect(berserker.nextAttackMs).toBe(300);
+    berserker.takeHit(Math.ceil(BOSSES.berserker.hp / 2)); expect(berserker.phase).toBe('RAGE');
+    expect(berserker.nextAttackMs).toBe(0);
     step(berserker, 1_400); expect(berserker.threats.length).toBe(3);
     const king = new BossEncounter('cookieng', 2); king.resize(390, 550);
-    expect(king.takeHit(10).dealt).toBe(0);
-    expect(king.hp).toBe(32); expect(king.phase).toBe('GOLDEN FORM');
-    expect(king.nextAttackMs).toBe(300);
+    expect(king.takeHit(BOSSES.cookieng.guard).dealt).toBe(0);
+    expect(king.hp).toBe(BOSSES.cookieng.hp); expect(king.phase).toBe('GOLDEN FORM');
+    expect(king.nextAttackMs).toBe(0);
     expect(king.takeHit(1).dealt).toBe(1);
   });
   it('caps hostile rewards, awards no SP and never duplicates interception', () => {
     const game = gameBoss(3), boss = game.sim.boss!;
     game.sim.sp = 34;
-    step(boss, 4_000, game.sim.groundY);
+    step(boss, 1_500, game.sim.groundY);
     const threat = boss.threats[0];
     expect(boss.intercept(threat)).toBe(6n);
     expect(boss.intercept(threat)).toBe(0n);
@@ -111,7 +113,7 @@ describe('P2 boss encounters', () => {
     boss.threats.push({ id: 8, kind: 'HARD', x: 20, y: game.sim.groundY - 30, vx: 0, vy: 0,
       hp: 3, radius: 20, damage: 2, reward: 6n, signal: false });
     game.sim.hp = 1;
-    shootBoss(game, 16);
+    boss.guard = 0; boss.hp = 1; shootBoss(game);
     expect(game.sim.phase).toBe('BOSS_CLEANUP');
     expect(game.balance).toBe(0n);
     const stopped = boss.timeMs;
@@ -127,12 +129,12 @@ describe('P2 boss encounters', () => {
     game.sim.hp = 2; game.sim.provisional = 10n;
     boss.threats.push({ id: 8, kind: 'NORMAL', x: 20, y: game.sim.groundY - 90, vx: 0, vy: 10,
       hp: 1, radius: 14, damage: 1, reward: 1n, signal: false });
-    shootBoss(game, 16);
+    boss.guard = 0; boss.hp = 1; shootBoss(game);
     expect(game.sim.phase).toBe('BOSS_CLEANUP');
     expect(game.balance).toBe(0n);
     boss.threats.length = 0;
     game.advance(P0.stepMs);
-    expect(game.sim.phase).toBe('WON'); expect(game.balance).toBe(45n);
+    expect(game.sim.phase).toBe('WON'); expect(game.balance).toBe(10n + boss.config.victoryReward);
     expect(game.state.hp).toBe(4); expect(game.state.stage).toBe(4);
     game.advance(5_000); expect(game.balance).toBe(45n); expect(game.state.hp).toBe(4);
     expect(game.continue()).toBe(true); expect(game.stageId).toBe(4);
@@ -142,7 +144,7 @@ describe('P2 boss encounters', () => {
     const game = gameBoss(3), boss = game.sim.boss!;
     boss.threats.push({ id: 9, kind: 'NORMAL', x: 20, y: game.sim.groundY - 15, vx: 0, vy: 100,
       hp: 1, radius: 14, damage: 1, reward: 1n, signal: false });
-    shootBoss(game, 16);
+    boss.guard = 0; boss.hp = 1; shootBoss(game);
     expect(game.sim.phase).toBe('BOSS_CLEANUP');
     game.advance(100);
     expect(game.sim.phase).toBe('WON');
@@ -161,13 +163,13 @@ describe('P2 boss encounters', () => {
   });
   it('keeps hostiles in bounds across resize and gives compact screens time to intercept', () => {
     const boss = new BossEncounter('barbarian', 2); boss.resize(320, 175);
-    step(boss, 3_900, 145);
+    step(boss, 1_500, 145);
     expect(boss.threats.length).toBe(1);
     let flightMs = 0;
     while (boss.threats.length && flightMs < 5_000) { boss.tick(P0.stepMs, 145); flightMs += P0.stepMs; }
-    expect(flightMs).toBeGreaterThan(1_200);
+    expect(flightMs).toBeGreaterThan(1_000);
     const knight = new BossEncounter('knight', 2); knight.resize(390, 550);
-    step(knight, 4_000);
+    step(knight, 1_500);
     const id = knight.threats[0].id, hp = knight.threats[0].hp;
     knight.resize(320, 175);
     expect(knight.threats[0].id).toBe(id); expect(knight.threats[0].hp).toBe(hp);
