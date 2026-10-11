@@ -141,9 +141,9 @@ class CampaignScene extends Phaser.Scene {
       this.bossSprite.setTexture(`v2-boss-${variant}`).setPosition(spot.x, spot.y).setDisplaySize(spot.radius * 2, spot.radius * 2);
       this.graphics.lineStyle(3, boss.warning ? 0xc93121 : boss.vulnerabilityMs ? 0x1d9581 : 0x60432b).strokeCircle(spot.x, spot.y, spot.radius + 5);
       if (boss.warning) this.graphics.fillStyle(0xc93121).fillTriangle(spot.x - 8, spot.y - spot.radius - 9, spot.x + 8, spot.y - spot.radius - 9, spot.x, spot.y - spot.radius - 25);
-      if (boss.warningLaneX !== null) {
-        this.graphics.lineStyle(3, 0xc93121, 0.85).lineBetween(boss.warningLaneX, spot.y + spot.radius, boss.warningLaneX, sim.groundY - 10);
-        this.graphics.fillStyle(0xc93121).fillTriangle(boss.warningLaneX - 8, sim.groundY - 14, boss.warningLaneX + 8, sim.groundY - 14, boss.warningLaneX, sim.groundY - 3);
+      for (const laneX of boss.warningLanes) {
+        this.graphics.lineStyle(3, 0xc93121, 0.85).lineBetween(laneX, spot.y + spot.radius, laneX, sim.groundY - 10);
+        this.graphics.fillStyle(0xc93121).fillTriangle(laneX - 8, sim.groundY - 14, laneX + 8, sim.groundY - 14, laneX, sim.groundY - 3);
       }
     }
     this.graphics.fillStyle(0x8b5b3d).fillCircle(sim.cannonX, sim.cannonY, sim.cookieRadius);

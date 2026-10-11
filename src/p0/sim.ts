@@ -203,6 +203,7 @@ export class P0Simulation {
     this.boss?.resize(width, height);
     for (const body of this.cookies) {
       if (body.radius) body.radius *= radiusScale;
+      if (body.maxY !== undefined) body.maxY *= sy;
       const radius = this.radiusOf(body);
       body.x = clamp(body.x * sx, radius, width - radius);
       body.y = clamp(body.y * sy, radius, this.groundY - radius);

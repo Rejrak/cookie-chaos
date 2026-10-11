@@ -36,6 +36,18 @@ describe('P2 boss encounters', () => {
       expect(a.firstAttackMs).toBeLessThan(1_500);
     }
   });
+  it('telegraphs every lane used by the upcoming opening volley', () => {
+    for (const id of Object.keys(BOSSES) as (keyof typeof BOSSES)[]) {
+      const boss = new BossEncounter(id, 77); boss.resize(390, 550);
+      boss.tick(P0.stepMs, 520);
+      const lanes = boss.warningLanes;
+      expect(lanes.length).toBeGreaterThan(0);
+      step(boss, boss.config.warningMs + P0.stepMs, 520);
+      expect(boss.attacks).toBe(1);
+      for (const threat of boss.threats)
+        expect(Math.min(...lanes.map(x => Math.abs(x - threat.x)))).toBeLessThan(2);
+    }
+  });
   it('alternates Barbarian armored threats and Normal bursts', () => {
     const boss = new BossEncounter('barbarian', 2); boss.resize(390, 550);
     step(boss, 1_500); expect(boss.threats.map(t => t.kind)).toContain('HARD');

@@ -3,7 +3,9 @@ html, body, #v2 { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 body { font-family: system-ui, sans-serif; color: #39251d; background: #fff2d4; touch-action: none; }
 #v2 { display: flex; flex-direction: column; }
 header, .hud, footer { flex: none; }
-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; min-height: 34px; background: #5b3528; color: #fff4d6; font-weight: 800; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px; min-height: 34px; background: #5b3528; color: #fff4d6; font-weight: 800; }
+header strong { flex: none; white-space: nowrap; }
+header #status { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
 header small { color: #ffdb83; }
 .hud { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 2px 8px; padding: 4px 7px; background: #694132; color: #fff7e8; font-size: 13px; font-weight: 800; }
 #hp { color: #ffb4ad; } #sp { color: #bfe5ff; } #clock { color: #ffe58a; }

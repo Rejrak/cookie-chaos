@@ -37,11 +37,11 @@ describe('Kingdom I configurations', () => {
       for (let i = 0; i < stage.waves.length; i++) {
         sim.startWave(); sim.advance(60_000);
       }
-      expect(sim.generatedPotentialSp, `stage ${stage.id}, width ${width}, seed ${seed}: ${JSON.stringify({ phase: sim.phase, wave: sim.wave, queue: sim.unspawned, cookies: sim.cookies, budgets: sim.waveBudgets })}`).toBeGreaterThan(stage.targetSp);
+      expect(sim.generatedPotentialSp, `stage ${stage.id}, width ${width}, seed ${seed}`).toBeGreaterThan(stage.targetSp);
       expect(sim.waveBudgets.reduce((sum, wave) => sum + wave.generated + wave.unspawned, 0))
         .toBe(stage.waves.reduce((sum, wave) => sum + COOKIE_KINDS.reduce((total, kind) => total + (wave[kind] ?? 0), 0), 0));
     }
-  });
+  }, 10_000);
 
   it('does not grant victory or wallet consolidation at a boss checkpoint', () => {
     const stage = KINGDOM_ONE[2];

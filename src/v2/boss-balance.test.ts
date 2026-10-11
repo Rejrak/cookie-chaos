@@ -19,7 +19,8 @@ function fight(id: BossId, damageLevel: number, fireRateLevel: number, strategy:
     if (strategy === 'barrage') aim = { x: width - 1, y: sim.cannonY - 30, radius: 0 };
     if (strategy === 'adaptive' && boss.threats.length) {
       const threat = [...boss.threats].sort((a, b) => b.y - a.y || a.id - b.id)[0];
-      aim = { x: threat.x, y: threat.y, radius: threat.radius };
+      const travel = Math.max(0, sim.cannonY - threat.y) / sim.projectileSpeed;
+      aim = { x: threat.x + threat.vx * travel, y: threat.y + threat.vy * travel, radius: threat.radius };
     }
     sim.setAim(aim.x, aim.y, true);
     sim.advance(100);

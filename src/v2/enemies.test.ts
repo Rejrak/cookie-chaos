@@ -34,7 +34,9 @@ describe('P3-A campaign cookies', () => {
     shoot(sim, tough); expect(tough.hp).toBe(1); expect(sim.sp).toBe(0);
     shoot(sim, tough); expect(sim.sp).toBe(5); expect(sim.provisional).toBe(9n);
     shoot(sim, titan); expect(titan.hp).toBe(7);
+    const oldMaxY = titan.maxY!;
     sim.resize(320, 175); expect(titan.hp).toBe(7);
+    expect(titan.maxY).toBeCloseTo(oldMaxY * 175 / 550);
     expect(titan.x).toBeGreaterThanOrEqual(titan.radius!);
     expect(titan.x).toBeLessThanOrEqual(sim.width - titan.radius!);
     titan.y = sim.groundY - titan.radius!;

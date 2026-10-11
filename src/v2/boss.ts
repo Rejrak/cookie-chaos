@@ -53,10 +53,15 @@ export class BossEncounter {
   }
   get remainingMs() { return Math.max(0, this.config.timerMs - this.timeMs); }
   get warning() { return this.warningMs > 0; }
-  get warningLaneX() {
-    if (!this.warning) return null;
-    const lane = this.pattern % 2 ? 0.78 : 0.22;
-    return this.width * lane;
+  get warningLanes() {
+    if (!this.warning) return [];
+    const odd = this.pattern % 2 !== 0, lane = odd ? 0.78 : 0.22;
+    const id = this.config.id;
+    const fractions = id === 'barbarian' ? odd ? [0.18, 0.5, 0.82] : [lane] :
+      id === 'knight' ? odd ? [lane, 0.5] : [lane] :
+        id === 'berserker' ? this.phase === 'RAGE' ? [0.16, 0.5, 0.84] : odd ? [0.24, 0.76] : [0.5, 0.82] :
+          this.phase === 'ROYAL CROWN' ? [lane, odd ? 0.22 : 0.78] : [0.2, 0.8];
+    return fractions.map(fraction => fraction * this.width);
   }
   get target() {
     const radius = Math.max(24, Math.min(55, this.width * 0.105, this.height * 0.16));
