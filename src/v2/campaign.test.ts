@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { P0 } from '../p0/config';
-import { Campaign, SAVE_KEY } from './campaign';
+import { Campaign, SAVE_KEY, recoveredHp } from './campaign';
 
 function storage() {
   const values = new Map<string, string>();
@@ -39,6 +39,23 @@ describe('V2 campaign', () => {
     expect(game.state.stage).toBe(3);
     expect(game.state.highestCompleted).toBe(0);
     expect(game.balance).toBe(0n);
+    expect(game.continue()).toBe(false);
+  });
+  it('advances 1 → 2 → 3 without a skip, then blocks official progress at the boss gate', () => {
+    const game = new Campaign(390, 550);
+    for (const stageId of [1, 2]) {
+      expect(game.stageId).toBe(stageId);
+      for (let i = 0; i < 3; i++) { game.startWave(); clearWave(game); }
+      expect(game.sim.phase).toBe('WON');
+      expect(game.continue()).toBe(true);
+      expect(game.continue()).toBe(false);
+    }
+    expect(game.stageId).toBe(3);
+    expect(game.state.highestCompleted).toBe(2);
+    for (let i = 0; i < 3; i++) { game.startWave(); clearWave(game); }
+    expect(game.sim.phase).toBe('AWAITING_BOSS_IMPLEMENTATION');
+    expect(game.state.stage).toBe(3);
+    expect(game.canShop).toBe(true);
     expect(game.continue()).toBe(false);
   });
 
@@ -86,6 +103,69 @@ describe('V2 campaign', () => {
     game.advance(P0.stepMs);
     expect(game.retry()).toBe(true);
     expect(game.sim.maxHp).toBe(6); expect(game.sim.fireRate).toBe(4);
+  });
+
+  it('keeps current damage on reload but discards provisional rewards from an interrupted wave', () => {
+    const db = storage(), game = new Campaign(390, 550, db);
+    game.startWave(); game.sim.provisional = 50n;
+    game.sim.cookies[0].y = game.sim.groundY - game.sim.cookieRadius;
+    game.advance(P0.stepMs);
+    const loaded = new Campaign(390, 550, db);
+    expect(loaded.sim.phase).toBe('PREP');
+    expect(loaded.sim.hp).toBe(4);
+    expect(loaded.sim.provisional).toBe(0n);
+    expect(loaded.balance).toBe(0n);
+    expect(new Campaign(390, 550, db).sim.hp).toBe(4);
+  });
+
+  it('keeps repair and payment after another loss and uses the approved retry reference', () => {
+    const game = new Campaign(390, 550);
+    game.state.balance = '100'; game.sim.consolidated = 100n;
+    game.state.hp = 2; game.state.retryReference = 2; game.sim.hp = 2;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      game.startWave(); game.sim.hp = 1;
+      game.sim.cookies[0].y = game.sim.groundY - game.sim.cookieRadius;
+      game.advance(P0.stepMs);
+      expect(game.state.hp).toBe(attempt === 0 ? 3 : 4);
+      if (attempt === 0) {
+        expect(game.buy('repair', 'r')).toBe(true);
+        expect(game.state.hp).toBe(4);
+      }
+      game.retry();
+    }
+    expect(game.sim.hp).toBe(4);
+    expect(game.state.balance).toBe('75');
+    expect(game.state.repairUsed).toBe(true);
+  });
+
+  it('has distinct normal and future boss recovery amounts', () => {
+    expect(recoveredHp(2, 5, false)).toBe(3);
+    expect(recoveredHp(2, 5, true)).toBe(4);
+    expect(recoveredHp(5, 5, true)).toBe(5);
+  });
+  it('applies rising Damage and Fire Rate costs without passing their caps', () => {
+    const game = new Campaign(390, 550);
+    game.state.balance = '1000'; game.sim.consolidated = 1000n;
+    for (let level = 0; level < 4; level++) {
+      expect(game.buy('damage', `damage-${level}`)).toBe(true);
+      expect(game.sim.damage).toBe(level + 2);
+    }
+    expect(game.buy('damage', 'damage-extra')).toBe(false);
+    for (let level = 0; level < 3; level++) {
+      expect(game.buy('fireRate', `rate-${level}`)).toBe(true);
+      expect(game.sim.fireRate).toBe(level + 4);
+    }
+    expect(game.buy('fireRate', 'rate-extra')).toBe(false);
+    expect(game.balance).toBe(1000n - 20n - 35n - 55n - 80n - 20n - 40n - 65n);
+  });
+
+  it('handles unavailable storage and failed writes without touching the old save', () => {
+    const broken = { getItem: (_key: string) => null, setItem: (_key: string, _value: string) => { throw Error('quota'); } };
+    const game = new Campaign(390, 550, broken);
+    game.state.balance = '20'; game.sim.consolidated = 20n;
+    expect(game.buy('damage', 'one')).toBe(true);
+    expect(game.persistenceWarning).toContain('Save failed');
+    expect(game.storage).toBeNull();
   });
 
   it('rejects corrupted saves without reading or changing the old clicker key', () => {

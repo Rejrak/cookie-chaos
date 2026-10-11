@@ -19,13 +19,14 @@ type StoragePort = Pick<Storage, 'getItem' | 'setItem'>;
 const initial = (): Save => ({ version: 1, stage: 1, highestCompleted: 0, balance: '0',
   hp: 5, maxHp: 5, retryReference: 5, repairUsed: false, damageLevel: 0, fireRateLevel: 0,
   maxHpLevel: 0, seed: 1207, control: 'DIRECT', transactions: [], retries: 0 });
+export const recoveredHp = (hp: number, maxHp: number, boss: boolean) => Math.min(maxHp, hp + (boss ? 2 : 1));
 
 function validSave(value: unknown): value is Save {
   if (!value || typeof value !== 'object') return false;
   const s = value as Partial<Save>;
   const integer = (n: unknown, min: number, max: number) => Number.isSafeInteger(n) && (n as number) >= min && (n as number) <= max;
   return s.version === 1 && integer(s.stage, 1, 12) && integer(s.highestCompleted, 0, 11) &&
-    (s.stage as number) <= (s.highestCompleted as number) + 1 &&
+    (s.stage as number) === (s.highestCompleted as number) + 1 &&
     typeof s.balance === 'string' && /^(0|[1-9]\d*)$/.test(s.balance) &&
     integer(s.maxHp, 5, 10) && integer(s.maxHpLevel, 0, 5) && s.maxHp === 5 + (s.maxHpLevel as number) &&
     integer(s.hp, 1, s.maxHp as number) && integer(s.retryReference, 1, s.maxHp as number) &&
@@ -68,7 +69,7 @@ export class Campaign {
 
   get stage() { return KINGDOM_ONE[this.stageId - 1]; }
   get balance() { return BigInt(this.state.balance); }
-  get canShop() { return this.sim.phase === 'PREP' || this.sim.phase === 'LOST'; }
+  get canShop() { return this.sim.phase === 'PREP' || this.sim.phase === 'LOST' || this.sim.phase === 'AWAITING_BOSS_IMPLEMENTATION'; }
   get nextStage() { return this.state.stage; }
 
   private createSim(width: number, height: number) {
@@ -89,7 +90,9 @@ export class Campaign {
   advance(deltaMs: number) {
     const previous = this.sim.phase, previousHp = this.sim.hp;
     this.sim.advance(deltaMs);
-    if (this.sim.hp !== previousHp && this.sim.phase === 'RUNNING') { this.state.hp = this.sim.hp; this.save(); }
+    if (this.sim.hp !== previousHp && (this.sim.phase === 'RUNNING' || this.sim.phase === 'PREP')) {
+      this.state.hp = this.sim.hp; this.save();
+    }
     if (previous === 'RUNNING' && this.sim.phase === 'LOST') {
       // Normalize once before the pre-Retry shop, as explicitly approved.
       this.state.hp = Math.min(this.state.maxHp, Math.max(this.state.retryReference, Math.ceil(this.state.maxHp / 2)));
@@ -103,7 +106,7 @@ export class Campaign {
         this.state.balance = this.sim.consolidated.toString();
         this.state.highestCompleted = this.stageId;
         this.state.stage = this.stageId + 1;
-        this.state.hp = Math.min(this.state.maxHp, this.sim.hp + 1);
+        this.state.hp = recoveredHp(this.sim.hp, this.state.maxHp, false);
         this.state.retryReference = this.state.hp;
         this.state.repairUsed = false;
         this.save();
@@ -136,7 +139,7 @@ export class Campaign {
     this.sim.consolidated = BigInt(next.balance);
     this.sim.damageLevel = next.damageLevel; this.sim.fireRateLevel = next.fireRateLevel;
     this.sim.maxHp = next.maxHp;
-    if (this.sim.phase === 'PREP') this.sim.hp = next.hp;
+    if (this.sim.phase === 'PREP' || this.sim.phase === 'AWAITING_BOSS_IMPLEMENTATION') this.sim.hp = next.hp;
     this.save();
     return true;
   }

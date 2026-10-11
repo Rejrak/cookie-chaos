@@ -1,9 +1,9 @@
 # Cookie Chaos — Game Design Document V2
 
 **Versione:** 2.0  
-**Stato:** Bozza consolidata, in attesa di approvazione  
+**Stato:** Bozza consolidata; P0 approvata tramite playtest, P1 autorizzata; P2–P4 non autorizzate  
 **Target:** HTML5 responsive / YouTube Playables  
-**Implementazione:** Non autorizzata
+**Implementazione:** Autorizzata soltanto per P1, senza approvazione globale del GDD
 
 ## 1. Visione del gioco
 
@@ -153,7 +153,7 @@ Le abilità consumano Cookies consolidate, hanno cooldown e costi riducibili tra
 
 ## 10. Shop, economia e Retry
 
-Il negozio è accessibile nelle pause dedicate tra ondate e tra stage.
+Il negozio è accessibile nelle pause dedicate prima della prima ondata, tra ondate, prima del boss, prima del Retry e tra stage. Gli acquisti usano soltanto Cookies consolidate; movimento, timer e spawn restano fermi durante la pausa.
 
 Gli upgrade sono permanenti lungo la progressione, inclusi Kingdom successivi ed Endless Mode.
 
@@ -170,9 +170,9 @@ In caso di sconfitta il giocatore può ritentare lo stage corrente mantenendo gl
 
 Gli HP iniziali di ogni Retry sono:
 
-`HP_retry = min(MaxHP, max(HP_ingresso + HP_riparati, ceil(MaxHP / 2)))`
+`HP_retry = min(MaxHP, max(retryHpReference, ceil(MaxHP / 2)))`
 
-`HP_riparati` è il totale degli HP **effettivamente recuperati** tramite l'unica riparazione consentita nello stage. La riparazione aggiorna il riferimento dei Retry una sola volta, rimane valida nei tentativi successivi e non può essere riacquistata nello stesso stage. Il costo resta speso anche dopo una sconfitta.
+`retryHpReference` nasce dagli HP all'ingresso dello stage. I danni non lo riducono. L'acquisto di MaxHP aumenta una sola volta MaxHP, HP correnti e riferimento dello stesso incremento. Una sola riparazione per stage aggiorna il riferimento degli HP **effettivamente recuperati**; il flag e il costo persistono nei Retry e nei salvataggi. Prima dello Shop pre-Retry, il riferimento viene normalizzato al minimo garantito del 50%: questa scelta è stata confermata esplicitamente dopo la bozza iniziale. Percentuale, arrotondamento e costo della riparazione rimangono sperimentali.
 
 Esempio: con `MaxHP = 10` e `HP_ingresso = 4`, il primo Retry senza riparazione parte da 5 HP. Se durante un tentativo l'unica riparazione recupera effettivamente 3 HP, il riferimento diventa 7 e i Retry successivi partono da 7 HP. La percentuale di riparazione e le regole di arrotondamento restano parametri sperimentali.
 
@@ -229,7 +229,7 @@ Deve contenere:
 |---|---:|
 | Danno cannone | 1 |
 | Fire Rate | 3 colpi/s |
-| Velocità proiettile | 1,7 altezze del campo/s |
+| Velocità proiettile | percorso verticale nominale di 420 ms nel P0 approvato |
 | Lifespan proiettile | 1,5 s |
 | Damage Lv1 | +1 danno |
 | Fire Rate Lv1 | 4 colpi/s |
@@ -266,7 +266,7 @@ Restano da precisare:
 - Ricompensa specifica per la vittoria dei boss, distinta dai biscotti intercettati.
 - Catalogo definitivo degli upgrade economici e difensivi ereditati dalla versione precedente.
 - Persistenza e migrazione di eventuali salvataggi V1.
-- Ambito esatto della riparazione: momento d'acquisto consentito e trattamento di un eventuale aumento di `MaxHP` durante lo stage.
+- Bilanciamento definitivo di percentuale, arrotondamento e costo della riparazione.
 
 Questi elementi non devono essere interpretati come decisioni già approvate.
 
@@ -278,6 +278,4 @@ La sequenza di sviluppo prevista è:
 4. P3 — Abilità, Bomb, Tough avanzati e upgrade speciali.
 5. P4 — Kingdom successivi, Endless, bilanciamento e polish.
 
-**Stato del documento:** pronto per revisione, non autorizzato per implementazione.
-
-**Nessun prompt Astra deve essere prodotto o eseguito prima dell'approvazione del Game Design Document V2.**
+**Stato del documento:** bozza non approvata globalmente. P0 è approvata; P1 è autorizzata in modo circoscritto. Le milestone P2–P4 richiedono autorizzazioni separate.

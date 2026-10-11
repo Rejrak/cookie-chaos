@@ -33,7 +33,7 @@ export class P0Simulation {
   readonly escaped: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
   readonly waveDurations: { attempt: number; wave: number; durationMs: number }[] = [];
   readonly purchases: { kind: 'damage' | 'fireRate'; cost: string; timeMs: number }[] = [];
-  readonly waveBudgets: { wave: number; scheduled: number; generated: number; unspawned: number; potentialSp: number }[] = [];
+  readonly waveBudgets: { attempt: number; wave: number; scheduled: number; generated: number; unspawned: number; potentialSp: number }[] = [];
   phase: Phase = 'PREP';
   hp: number;
   maxHp: number;
@@ -55,6 +55,7 @@ export class P0Simulation {
   ricochetHits = 0;
   damageTaken = 0;
   rejectedSpawns = 0;
+  removedOnLoss = 0;
   generatedPotentialSp = 0;
   unspawned: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
   private random: () => number;
@@ -401,7 +402,7 @@ export class P0Simulation {
   }
 
   private finishWave() {
-    this.waveBudgets.push({ wave: this.wave + 1, scheduled: this.waveScheduled, generated: this.waveGenerated,
+    this.waveBudgets.push({ attempt: this.retryCount + 1, wave: this.wave + 1, scheduled: this.waveScheduled, generated: this.waveGenerated,
       unspawned: this.waveScheduled - this.waveGenerated, potentialSp: this.wavePotentialSp });
     this.waveDurations.push({ attempt: this.retryCount + 1, wave: this.wave + 1, durationMs: this.waveTimeMs });
     this.release();
@@ -416,10 +417,17 @@ export class P0Simulation {
   }
 
   private lose() {
+    if (this.queue.length) {
+      for (const kind of this.queue) this.unspawned[kind]++;
+      this.queue.length = 0;
+    }
+    if (this.waveBudgets.at(-1)?.attempt !== this.retryCount + 1 || this.waveBudgets.at(-1)?.wave !== this.wave + 1)
+      this.waveBudgets.push({ attempt: this.retryCount + 1, wave: this.wave + 1, scheduled: this.waveScheduled, generated: this.waveGenerated,
+        unspawned: this.waveScheduled - this.waveGenerated, potentialSp: this.wavePotentialSp });
     const last = this.waveDurations.at(-1);
     if (this.phase === 'RUNNING' && (last?.attempt !== this.retryCount + 1 || last?.wave !== this.wave + 1))
       this.waveDurations.push({ attempt: this.retryCount + 1, wave: this.wave + 1, durationMs: this.waveTimeMs });
-    this.phase = 'LOST'; this.queue.length = 0; this.cookies.length = 0; this.bullets.length = 0;
+    this.phase = 'LOST'; this.removedOnLoss += this.cookies.length; this.cookies.length = 0; this.bullets.length = 0;
     this.provisional = 0n; this.release();
   }
 
@@ -437,7 +445,7 @@ export class P0Simulation {
       consolidatedCookies: this.consolidated.toString(), damageLevel: this.damageLevel,
       fireRateLevel: this.fireRateLevel, purchases: this.purchases,
       retries: this.retryCount, recoveryWaves: this.recoveryCount, totalRecoveryWaves: this.totalRecoveryWaves,
-      rejectedSpawns: this.rejectedSpawns,
+      rejectedSpawns: this.rejectedSpawns, removedOnLoss: this.removedOnLoss,
       waveBudgets: this.waveBudgets, generatedPotentialSp: this.generatedPotentialSp, unspawned: this.unspawned,
     };
   }

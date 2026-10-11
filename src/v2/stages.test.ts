@@ -28,6 +28,19 @@ describe('Kingdom I configurations', () => {
     expect(budget.potentialSp).toBe(sim.generatedPotentialSp);
     expect(sim.unspawned.NORMAL + sim.unspawned.HARD + sim.unspawned.GOLDEN).toBe(budget.unspawned);
   });
+  it('puts enough potential SP in play across compact and desktop arenas', () => {
+    for (const stage of KINGDOM_ONE) for (const width of [320, 390, 960]) for (const seed of [1, 1207, 99_991]) {
+      const sim = new P0Simulation(width, width === 320 ? 169 : 550, stage.arena, seed, 0n,
+        { rules: { ...stage, bossCheckpoint: !!stage.boss } });
+      sim.hp = 1000;
+      for (let i = 0; i < stage.waves.length; i++) {
+        sim.startWave(); sim.advance(60_000);
+      }
+      expect(sim.generatedPotentialSp, `stage ${stage.id}, width ${width}, seed ${seed}`).toBeGreaterThan(stage.targetSp);
+      expect(sim.waveBudgets.reduce((sum, wave) => sum + wave.generated + wave.unspawned, 0))
+        .toBe(stage.waves.reduce((sum, wave) => sum + wave.NORMAL + wave.HARD + wave.GOLDEN, 0));
+    }
+  });
 
   it('does not grant victory or wallet consolidation at a boss checkpoint', () => {
     const stage = KINGDOM_ONE[2];

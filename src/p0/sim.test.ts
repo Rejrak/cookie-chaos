@@ -169,6 +169,16 @@ describe('P0 shooter simulation', () => {
     expect(reflected.hits).toBe(1);
     expect(reflected.ricochetHits).toBe(1);
   });
+  it('resolves multiple fast wall bounces within one fixed step', () => {
+    const sim = game(); sim.startWave();
+    sim.cookies.length = 0;
+    sim.bullets.push({ x: sim.width / 2, y: 250, vx: 180_000, vy: 0, lifeMs: 100, bounces: 0 });
+    sim.advance(P0.stepMs);
+    expect(sim.bullets[0].bounces).toBeGreaterThanOrEqual(2);
+    expect(sim.bullets[0].x).toBeGreaterThanOrEqual(sim.bulletRadius);
+    expect(sim.bullets[0].x).toBeLessThanOrEqual(sim.width - sim.bulletRadius);
+    expect(Math.abs(sim.bullets[0].vx)).toBe(180_000);
+  });
 
   it('requires all ordinary waves even when Stage Points reach target early', () => {
     const sim = game(); sim.sp = P0.targetSp;
