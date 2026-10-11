@@ -1,5 +1,5 @@
 import { P0Simulation } from '../p0/sim';
-import { KINGDOM_ONE } from './stages';
+import { CAMPAIGN_FALL_SECONDS, KINGDOM_ONE } from './stages';
 
 export const SAVE_KEY = 'cookie-chaos-v2-campaign-v1';
 export type UpgradeKind = 'damage' | 'fireRate' | 'maxHp' | 'repair';
@@ -81,7 +81,7 @@ export class Campaign {
     const sim = new P0Simulation(width, height, stage.arena, (this.state.seed + stage.id * 2654435761) >>> 0,
       BigInt(this.state.balance), { rules: { ...stage, bossCheckpoint: !!stage.boss,
         bossId: stage.boss ? ({ 3: 'barbarian', 6: 'knight', 9: 'berserker', 12: 'cookieng' } as const)[stage.id as 3 | 6 | 9 | 12] : undefined,
-        fallSeconds: { NORMAL: 4.18, HARD: 4.8, GOLDEN: 2.8 } }, maxHp: this.state.maxHp, hp: this.state.hp });
+        fallSeconds: CAMPAIGN_FALL_SECONDS }, maxHp: this.state.maxHp, hp: this.state.hp });
     sim.damageLevel = this.state.damageLevel; sim.fireRateLevel = this.state.fireRateLevel;
     return sim;
   }

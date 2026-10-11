@@ -1,9 +1,9 @@
 # Cookie Chaos — Game Design Document V2
 
 **Versione:** 2.0  
-**Stato:** Bozza consolidata; P0 approvata tramite playtest, P1 autorizzata; P2–P4 non autorizzate  
+**Stato:** Bozza consolidata; P0 approvata tramite playtest, P1 completata tecnicamente, P2 autorizzata e in validazione; P3–P4 non autorizzate  
 **Target:** HTML5 responsive / YouTube Playables  
-**Implementazione:** Autorizzata soltanto per P1, senza approvazione globale del GDD
+**Implementazione:** Autorizzata fino a P2, senza approvazione globale del GDD
 
 ## 1. Visione del gioco
 
@@ -278,4 +278,4 @@ La sequenza di sviluppo prevista è:
 4. P3 — Abilità, Bomb, Tough avanzati e upgrade speciali.
 5. P4 — Kingdom successivi, Endless, bilanciamento e polish.
 
-**Stato del documento:** bozza non approvata globalmente. P0 è approvata; P1 è autorizzata in modo circoscritto. Le milestone P2–P4 richiedono autorizzazioni separate.
+**Stato del documento:** bozza non approvata globalmente. P0 è approvata; P1 è completata tecnicamente; P2 è autorizzata per sviluppo e playtest, senza approvazione del gameplay. P3 e P4 richiedono autorizzazioni separate.

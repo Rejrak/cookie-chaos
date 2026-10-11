@@ -7,6 +7,7 @@ export type StageConfig = {
   boss?: 'Cookie Barbarian' | 'Cookie Knight' | 'Cookie Berserker' | 'The Cookieng';
 };
 const wave = (normal: number, hard: number, golden = 0): Wave => ({ NORMAL: normal, HARD: hard, GOLDEN: golden });
+export const CAMPAIGN_FALL_SECONDS = { NORMAL: 4.18, HARD: 4.8, GOLDEN: 2.8 } as const;
 
 // Explicit Kingdom I encounters. Values remain experimental pending campaign playtest.
 export const KINGDOM_ONE: readonly StageConfig[] = [
