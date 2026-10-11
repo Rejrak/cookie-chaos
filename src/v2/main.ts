@@ -60,7 +60,7 @@ function renderUi() {
     (boss.warning ? ' · ⚠ INCOMING: intercept the cookies!' : boss.vulnerabilityMs ? ' · OPEN: strike now!' : '') +
     (phase === 'BOSS_CLEANUP' ? ' · CLEANUP: defend the base!' : '');
   if (boss && window.innerWidth <= 390 && window.innerHeight <= 380)
-    bossHud.textContent = `${boss.config.name.replace('Cookie ', '')} · ${boss.hp}/${boss.config.hp} HP` +
+    bossHud.textContent = `${boss.config.name.replace('Cookie ', '')} · ${boss.phase} · ${boss.hp}/${boss.config.hp} HP` +
       (boss.config.guard ? ` · 🛡 ${boss.guard}` : '') + (boss.warning ? ' · ⚠ INCOMING' : boss.vulnerabilityMs ? ' · OPEN' : '') +
       (phase === 'BOSS_CLEANUP' ? ' · CLEAR THREATS' : '');
   el('status').textContent = phase === 'RUNNING' ? sim.waveLabel : phase === 'WON' ?
