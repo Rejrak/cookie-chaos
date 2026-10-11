@@ -1,8 +1,8 @@
-import { P0, seededRandom, type ArenaKind, type CookieKind } from './config';
+import { P0, seededRandom, type ArenaKind, type CookieKind, type ShooterRules } from './config';
 
 export type Body = { id: number; kind: CookieKind; x: number; y: number; vx: number; vy: number; hp: number; stuckMs: number };
 export type Bullet = { x: number; y: number; vx: number; vy: number; lifeMs: number; bounces: number };
-export type Phase = 'PREP' | 'RUNNING' | 'WON' | 'LOST';
+export type Phase = 'PREP' | 'RUNNING' | 'WON' | 'LOST' | 'AWAITING_BOSS_IMPLEMENTATION';
 export type Event = { type: 'destroy' | 'escape' | 'hit' | 'shot' | 'bounce'; kind?: CookieKind; x?: number; y?: number };
 
 function clamp(value: number, low: number, high: number) { return Math.min(high, Math.max(low, value)); }
@@ -25,6 +25,7 @@ export class P0Simulation {
   readonly seed: number;
   readonly arena: ArenaKind;
   readonly initialCredit: bigint;
+  readonly rules: ShooterRules;
   readonly events: Event[] = [];
   readonly cookies: Body[] = [];
   readonly bullets: Bullet[] = [];
@@ -32,9 +33,11 @@ export class P0Simulation {
   readonly escaped: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
   readonly waveDurations: { attempt: number; wave: number; durationMs: number }[] = [];
   readonly purchases: { kind: 'damage' | 'fireRate'; cost: string; timeMs: number }[] = [];
+  readonly waveBudgets: { wave: number; scheduled: number; generated: number; unspawned: number; potentialSp: number }[] = [];
   phase: Phase = 'PREP';
-  hp: number = P0.maxHp;
-  stageEntryHp = P0.maxHp;
+  hp: number;
+  maxHp: number;
+  stageEntryHp: number = P0.maxHp;
   sp = 0;
   consolidated: bigint;
   provisional = 0n;
@@ -52,9 +55,14 @@ export class P0Simulation {
   ricochetHits = 0;
   damageTaken = 0;
   rejectedSpawns = 0;
+  generatedPotentialSp = 0;
+  unspawned: Record<CookieKind, number> = { NORMAL: 0, HARD: 0, GOLDEN: 0 };
   private random: () => number;
   private id = 0;
   private queue: CookieKind[] = [];
+  private waveScheduled = 0;
+  private waveGenerated = 0;
+  private wavePotentialSp = 0;
   private spawnElapsed = 0;
   private fireElapsed = 0;
   private accumulator = 0;
@@ -62,11 +70,19 @@ export class P0Simulation {
   private aimX = 0;
   private aimY = 0;
 
-  constructor(public width: number, public height: number, arena: ArenaKind, seed: number, initialCredit = 0n) {
+  constructor(public width: number, public height: number, arena: ArenaKind, seed: number, initialCredit = 0n,
+    options: { rules?: ShooterRules; maxHp?: number; hp?: number } = {}) {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 160 || height < 150 ||
       !Number.isInteger(seed) || seed < 0 || seed > 0xffffffff || initialCredit < 0n ||
       (arena !== 'FREE' && arena !== 'OBSTACLE')) throw new RangeError('Invalid P0 setup');
     this.arena = arena;
+    this.rules = options.rules ?? { targetSp: P0.targetSp, waves: P0.waves, spawnMs: P0.spawnMs,
+      waveMs: P0.waveMs, maxActive: Number.POSITIVE_INFINITY, bossCheckpoint: false };
+    this.maxHp = options.maxHp ?? P0.maxHp;
+    this.hp = options.hp ?? this.maxHp;
+    if (!Number.isSafeInteger(this.maxHp) || this.maxHp < 1 || !Number.isSafeInteger(this.hp) || this.hp < 1 || this.hp > this.maxHp)
+      throw new RangeError('Invalid base HP');
+    this.stageEntryHp = this.hp;
     this.seed = seed;
     this.random = seededRandom(seed);
     this.initialCredit = initialCredit;
@@ -88,10 +104,10 @@ export class P0Simulation {
   get cannonY() { return this.height - this.cookieRadius - 1; }
   get projectileSpeed() { return this.height * 1000 / P0.projectileTravelMs; }
   get aimPoint() { return { x: this.aimX, y: this.aimY }; }
-  get fireRate() { return this.fireRateLevel ? 4 : 3; }
+  get fireRate() { return 3 + this.fireRateLevel; }
   get damage() { return 1 + this.damageLevel; }
   get accuracy() { return this.shots ? this.hits / this.shots : 0; }
-  get waveLabel() { return this.wave < 3 ? `Wave ${this.wave + 1}/3` : `Recovery ${this.wave - 2}/2`; }
+  get waveLabel() { return this.wave < this.rules.waves.length ? `Wave ${this.wave + 1}/${this.rules.waves.length}` : `Recovery ${this.wave - this.rules.waves.length + 1}/2`; }
 
   setAim(x: number, y: number, firing: boolean) {
     this.aimX = clamp(x, 0, this.width);
@@ -115,13 +131,13 @@ export class P0Simulation {
   startWave(): boolean {
     if (this.phase !== 'PREP') return false;
     this.wave++;
-    if (this.wave < 3) {
-      const counts = P0.waves[this.wave];
+    if (this.wave < this.rules.waves.length) {
+      const counts = this.rules.waves[this.wave];
       this.queue = [...Array(counts.NORMAL).fill('NORMAL'), ...Array(counts.HARD).fill('HARD'), ...Array(counts.GOLDEN).fill('GOLDEN')];
     } else {
       this.recoveryCount++;
       this.totalRecoveryWaves++;
-      const deficit = Math.max(1, P0.targetSp - this.sp);
+      const deficit = Math.max(1, this.rules.targetSp - this.sp);
       const hard = Math.max(1, Math.ceil(deficit / 6) + this.recoveryCount - 1);
       const normal = Math.max(2, deficit - 3 * hard + 2);
       this.queue = [...Array(normal).fill('NORMAL'), ...Array(hard).fill('HARD')];
@@ -132,7 +148,10 @@ export class P0Simulation {
       [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
     }
     this.phase = 'RUNNING';
-    this.waveDurationMs = this.wave < 3 ? P0.waveMs : Math.max(P0.waveMs, (this.queue.length + 1) * P0.spawnMs + 6_000);
+    this.waveDurationMs = this.wave < this.rules.waves.length ? this.rules.waveMs : Math.max(this.rules.waveMs, (this.queue.length + 1) * this.rules.spawnMs + 6_000);
+    this.waveScheduled = this.queue.length;
+    this.waveGenerated = 0;
+    this.wavePotentialSp = 0;
     this.waveTimeMs = 0;
     this.spawnElapsed = 0;
     this.fireElapsed = 1000 / this.fireRate;
@@ -143,7 +162,7 @@ export class P0Simulation {
   retry(): boolean {
     if (this.phase !== 'LOST') return false;
     this.retryCount++;
-    this.hp = Math.min(P0.maxHp, Math.max(this.stageEntryHp, Math.ceil(P0.maxHp / 2)));
+    this.hp = Math.min(this.maxHp, Math.max(this.stageEntryHp, Math.ceil(this.maxHp / 2)));
     this.sp = 0;
     this.provisional = 0n;
     this.wave = -1;
@@ -189,11 +208,14 @@ export class P0Simulation {
     this.waveTimeMs += ms;
     this.spawnElapsed += ms;
     this.fireElapsed += ms;
-    while (this.queue.length && this.spawnElapsed >= P0.spawnMs && this.waveTimeMs < this.waveDurationMs) {
-      this.spawnElapsed -= P0.spawnMs;
+    while (this.queue.length && this.spawnElapsed >= this.rules.spawnMs && this.waveTimeMs < this.waveDurationMs) {
+      this.spawnElapsed -= this.rules.spawnMs;
       this.spawn();
     }
-    if (this.waveTimeMs >= this.waveDurationMs) this.queue.length = 0;
+    if (this.waveTimeMs >= this.waveDurationMs && this.queue.length) {
+      for (const kind of this.queue) this.unspawned[kind]++;
+      this.queue.length = 0;
+    }
     if (this.firing) {
       const interval = 1000 / this.fireRate;
       while (this.fireElapsed >= interval) { this.fireElapsed -= interval; this.shoot(); }
@@ -233,27 +255,47 @@ export class P0Simulation {
 
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const bullet = this.bullets[i];
-      const x0 = bullet.x, y0 = bullet.y;
-      bullet.x += bullet.vx * dt; bullet.y += bullet.vy * dt; bullet.lifeMs -= ms;
-      if (bullet.x < this.bulletRadius || bullet.x > this.width - this.bulletRadius) {
-        bullet.x = clamp(bullet.x, this.bulletRadius, this.width - this.bulletRadius);
-        bullet.vx *= -1; bullet.bounces++;
-        this.events.push({ type: 'bounce', x: bullet.x, y: bullet.y });
+      bullet.lifeMs -= ms;
+      let remaining = dt, removed = false;
+      for (let bounce = 0; bounce < 8 && remaining > 1e-8; bounce++) {
+        const x0 = bullet.x, y0 = bullet.y, dx = bullet.vx * remaining, dy = bullet.vy * remaining;
+        const x1 = x0 + dx, y1 = y0 + dy;
+        let earliest = 1.000001;
+        let target: Body | null = null;
+        let surface: 'obstacle' | 'wall' | 'edge' | null = null;
+        let nx = 0, ny = 0;
+        const obstacle = this.obstacleHit(x0, y0, x1, y1);
+        if (obstacle) { earliest = obstacle.t; surface = 'obstacle'; nx = obstacle.nx; ny = obstacle.ny; }
+        if (dx < 0 && x1 < this.bulletRadius) { const t = (this.bulletRadius - x0) / dx; if (t >= 0 && t < earliest) { earliest = t; surface = 'wall'; nx = 1; ny = 0; } }
+        if (dx > 0 && x1 > this.width - this.bulletRadius) { const t = (this.width - this.bulletRadius - x0) / dx; if (t >= 0 && t < earliest) { earliest = t; surface = 'wall'; nx = -1; ny = 0; } }
+        if (dy < 0 && y1 < 0) { const t = -y0 / dy; if (t >= 0 && t < earliest) { earliest = t; surface = 'edge'; } }
+        if (dy > 0 && y1 >= this.groundY) { const t = (this.groundY - y0) / dy; if (t >= 0 && t < earliest) { earliest = t; surface = 'edge'; } }
+        for (const body of this.cookies) {
+          const t = sweepCircle(x0, y0, x1, y1, body.x, body.y, this.cookieRadius + this.bulletRadius);
+          if (t !== null && t < earliest - 1e-8) { earliest = t; target = body; surface = null; }
+        }
+        if (earliest > 1) { bullet.x = x1; bullet.y = y1; break; }
+        bullet.x = x0 + dx * earliest; bullet.y = y0 + dy * earliest;
+        if (target) {
+          this.bullets.splice(i, 1); removed = true;
+          this.hits++;
+          if (bullet.bounces) this.ricochetHits++;
+          this.events.push({ type: 'hit', kind: target.kind, x: target.x, y: target.y });
+          target.hp = Math.max(0, target.hp - this.damage);
+          if (!target.hp) this.destroy(target);
+          break;
+        }
+        if (surface === 'edge') { this.bullets.splice(i, 1); removed = true; break; }
+        if (surface === 'wall' || surface === 'obstacle') {
+          const dot = bullet.vx * nx + bullet.vy * ny;
+          bullet.vx -= 2 * dot * nx; bullet.vy -= 2 * dot * ny;
+          bullet.x += nx * 0.1; bullet.y += ny * 0.1;
+          bullet.bounces++;
+          this.events.push({ type: 'bounce', x: bullet.x, y: bullet.y });
+          remaining *= 1 - earliest;
+        }
       }
-      this.collideBulletObstacle(bullet, x0, y0);
-      let closest = 2, target: Body | null = null;
-      for (const body of this.cookies) {
-        const t = sweepCircle(x0, y0, bullet.x, bullet.y, body.x, body.y, this.cookieRadius + this.bulletRadius);
-        if (t !== null && t < closest) { closest = t; target = body; }
-      }
-      if (target) {
-        this.bullets.splice(i, 1);
-        this.hits++;
-        if (bullet.bounces) this.ricochetHits++;
-        this.events.push({ type: 'hit', kind: target.kind, x: target.x, y: target.y });
-        target.hp = Math.max(0, target.hp - this.damage);
-        if (!target.hp) this.destroy(target);
-      } else if (bullet.y < 0 || bullet.y >= this.groundY || bullet.lifeMs <= 0) this.bullets.splice(i, 1);
+      if (!removed && bullet.lifeMs <= 0) this.bullets.splice(i, 1);
     }
     if (!this.queue.length && !this.cookies.length) this.finishWave();
   }
@@ -261,14 +303,15 @@ export class P0Simulation {
   private spawn() {
     if (!this.queue.length) return;
     const radius = this.cookieRadius;
-    if (this.cookies.length >= Math.max(4, Math.floor(this.width / (radius * 3.4)))) { this.rejectedSpawns++; return; }
+    if (this.cookies.length >= Math.min(this.rules.maxActive, Math.max(4, Math.floor(this.width / (radius * 3.4))))) { this.rejectedSpawns++; return; }
     const kind = this.queue[0];
     for (let attempt = 0; attempt < 16; attempt++) {
       const x = radius + this.random() * (this.width - 2 * radius);
       const y = radius + this.random() * 10;
       if (this.cookies.some(body => Math.hypot(body.x - x, body.y - y) < 2 * radius + 3)) continue;
       this.cookies.push({ id: ++this.id, kind, x, y, vx: (this.random() - 0.5) * 38, vy: 0, hp: P0.cookies[kind].hp, stuckMs: 0 });
-      this.queue.shift(); return;
+      this.queue.shift(); this.waveGenerated++; this.wavePotentialSp += P0.cookies[kind].sp;
+      this.generatedPotentialSp += P0.cookies[kind].sp; return;
     }
     this.rejectedSpawns++;
   }
@@ -329,38 +372,43 @@ export class P0Simulation {
     if (inward < 0) { body.vx -= 1.5 * inward * nx; body.vy -= 1.5 * inward * ny; }
   }
 
-  private collideBulletObstacle(bullet: Bullet, oldX: number, oldY: number) {
+  private obstacleHit(x0: number, y0: number, x1: number, y1: number): { t: number; nx: number; ny: number } | null {
     const obstacle = this.obstacle;
-    if (!obstacle) return;
+    if (!obstacle) return null;
     const ax = obstacle.ax, ay = obstacle.ay, bx = obstacle.bx, by = obstacle.by;
-    const rx = bullet.x - oldX, ry = bullet.y - oldY, sx = bx - ax, sy = by - ay;
-    const cross = rx * sy - ry * sx;
-    const qx = ax - oldX, qy = ay - oldY;
-    const t = Math.abs(cross) < 1e-8 ? -1 : (qx * sy - qy * sx) / cross;
-    const u = Math.abs(cross) < 1e-8 ? -1 : (qx * ry - qy * rx) / cross;
-    const crossing = t >= 0 && t <= 1 && u >= 0 && u <= 1;
-    const contact = crossing ? { x: oldX + rx * t, y: oldY + ry * t } :
-      distanceToSegment(bullet.x, bullet.y, ax, ay, bx, by);
+    const dx = x1 - x0, dy = y1 - y0;
+    const length = Math.hypot(bx - ax, by - ay);
+    const tx = (bx - ax) / length, ty = (by - ay) / length;
+    const normalX = -ty, normalY = tx;
     const radius = this.bulletRadius + this.obstacleHalfWidth;
-    if (!crossing && Math.hypot(bullet.x - contact.x, bullet.y - contact.y) >= radius) return;
-    let nx = crossing ? -sy / Math.hypot(sx, sy) : (bullet.x - contact.x) / (Math.hypot(bullet.x - contact.x, bullet.y - contact.y) || 1);
-    let ny = crossing ? sx / Math.hypot(sx, sy) : (bullet.y - contact.y) / (Math.hypot(bullet.x - contact.x, bullet.y - contact.y) || 1);
-    if (crossing && bullet.vx * nx + bullet.vy * ny > 0) { nx *= -1; ny *= -1; }
-    const dot = bullet.vx * nx + bullet.vy * ny;
-    if (dot >= 0) return;
-    bullet.vx -= 2 * dot * nx; bullet.vy -= 2 * dot * ny;
-    bullet.x = contact.x + nx * (radius + 0.1);
-    bullet.y = contact.y + ny * (radius + 0.1);
-    bullet.bounces++;
-    this.events.push({ type: 'bounce', x: bullet.x, y: bullet.y });
+    let best: { t: number; nx: number; ny: number } | null = null;
+    const signed = (x0 - ax) * normalX + (y0 - ay) * normalY;
+    const normalMove = dx * normalX + dy * normalY;
+    for (const side of [-1, 1]) {
+      if (side * normalMove >= 0) continue;
+      const t = (side * radius - signed) / normalMove;
+      const along = (x0 + dx * t - ax) * tx + (y0 + dy * t - ay) * ty;
+      if (t >= 0 && t <= 1 && along >= 0 && along <= length && (!best || t < best.t))
+        best = { t, nx: side * normalX, ny: side * normalY };
+    }
+    for (const [ex, ey] of [[ax, ay], [bx, by]]) {
+      const t = sweepCircle(x0, y0, x1, y1, ex, ey, radius);
+      if (t === null || (best && t >= best.t)) continue;
+      const nx = (x0 + dx * t - ex) / radius, ny = (y0 + dy * t - ey) / radius;
+      if (dx * nx + dy * ny < 0) best = { t, nx, ny };
+    }
+    return best;
   }
 
   private finishWave() {
+    this.waveBudgets.push({ wave: this.wave + 1, scheduled: this.waveScheduled, generated: this.waveGenerated,
+      unspawned: this.waveScheduled - this.waveGenerated, potentialSp: this.wavePotentialSp });
     this.waveDurations.push({ attempt: this.retryCount + 1, wave: this.wave + 1, durationMs: this.waveTimeMs });
     this.release();
     this.bullets.length = 0;
-    if (this.wave < 2) { this.phase = 'PREP'; return; }
-    if (this.sp >= P0.targetSp) {
+    if (this.wave < this.rules.waves.length - 1) { this.phase = 'PREP'; return; }
+    if (this.sp >= this.rules.targetSp) {
+      if (this.rules.bossCheckpoint) { this.phase = 'AWAITING_BOSS_IMPLEMENTATION'; return; }
       this.phase = 'WON'; this.consolidated += this.provisional; this.provisional = 0n; return;
     }
     if (this.recoveryCount >= 2) { this.lose(); return; }
@@ -378,7 +426,7 @@ export class P0Simulation {
   metrics() {
     return {
       seed: this.seed, arena: this.arena, initialCredit: this.initialCredit.toString(),
-      config: { targetSp: P0.targetSp, maxHp: P0.maxHp, ordinaryWaveMs: P0.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: P0.spawnMs,
+      config: { targetSp: this.rules.targetSp, maxHp: this.maxHp, ordinaryWaveMs: this.rules.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: this.rules.spawnMs,
         cookieRadius: this.cookieRadius, bulletRadius: this.bulletRadius, projectileSpeed: this.projectileSpeed },
       viewport: { width: this.width, height: this.height },
       phase: this.phase, wave: this.waveLabel, waveDurationsMs: this.waveDurations,
@@ -390,6 +438,7 @@ export class P0Simulation {
       fireRateLevel: this.fireRateLevel, purchases: this.purchases,
       retries: this.retryCount, recoveryWaves: this.recoveryCount, totalRecoveryWaves: this.totalRecoveryWaves,
       rejectedSpawns: this.rejectedSpawns,
+      waveBudgets: this.waveBudgets, generatedPotentialSp: this.generatedPotentialSp, unspawned: this.unspawned,
     };
   }
 }

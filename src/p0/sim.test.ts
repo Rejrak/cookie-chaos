@@ -153,6 +153,22 @@ describe('P0 shooter simulation', () => {
     expect(sim.bullets[0].bounces).toBe(1);
     expect(Math.hypot(sim.bullets[0].vx, sim.bullets[0].vy)).toBeCloseTo(600, 5);
   });
+  it('traces the reflected path and cannot hit through a slanted obstacle', () => {
+    const blocked = game(2, 0n, 'OBSTACLE'), reflected = game(2, 0n, 'OBSTACLE');
+    for (const [sim, targetSide] of [[blocked, -1], [reflected, 1]] as const) {
+      sim.startWave();
+      const o = sim.obstacle!, x = (o.ax + o.bx) / 2, y = (o.ay + o.by) / 2;
+      const length = Math.hypot(o.bx - o.ax, o.by - o.ay);
+      const nx = -(o.by - o.ay) / length, ny = (o.bx - o.ax) / length;
+      const body = sim.cookies[0]; body.x = x + nx * (targetSide < 0 ? -45 : 75); body.y = y + ny * (targetSide < 0 ? -45 : 75);
+      body.vx = 0; body.vy = 0; body.hp = 1;
+      sim.bullets.push({ x: x + nx * 50, y: y + ny * 50, vx: -nx * 12_000, vy: -ny * 12_000, lifeMs: 500, bounces: 0 });
+      sim.advance(P0.stepMs);
+    }
+    expect(blocked.hits).toBe(0);
+    expect(reflected.hits).toBe(1);
+    expect(reflected.ricochetHits).toBe(1);
+  });
 
   it('requires all ordinary waves even when Stage Points reach target early', () => {
     const sim = game(); sim.sp = P0.targetSp;
