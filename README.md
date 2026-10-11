@@ -1,6 +1,6 @@
 # Cookie Chaos
 
-Experimental V2 shooter prototype: [P0 playtest instructions](docs/v2-p0/README.md). Open `/p0.html`; the existing game remains at `/`.
+Experimental V2 shooter campaign: [P1 playtest instructions](docs/v2-p1/README.md). Open `/v2.html`. The approved [P0 prototype](docs/v2-p0/README.md) remains at `/p0.html`; the existing clicker remains at `/`.
 
 An arcade clicker game with timed stages for YouTube Playables.
 

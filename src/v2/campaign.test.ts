@@ -17,12 +17,12 @@ function clearWave(game: Campaign) {
 describe('V2 campaign', () => {
   it('completes ordinary stages once, consolidates pending Cookies and restores HP', () => {
     const db = storage(), game = new Campaign(390, 550, db);
-    game.sim.hp = 4;
+    game.sim.hp = 2;
     for (let i = 0; i < 3; i++) { expect(game.startWave()).toBe(true); clearWave(game); }
     expect(game.sim.phase).toBe('WON');
     expect(game.state.stage).toBe(2);
     expect(game.state.highestCompleted).toBe(1);
-    expect(game.state.hp).toBe(5);
+    expect(game.state.hp).toBe(3);
     const balance = game.balance;
     expect(balance).toBeGreaterThan(0n);
     game.advance(1000); expect(game.balance).toBe(balance);
@@ -40,6 +40,20 @@ describe('V2 campaign', () => {
     expect(game.state.highestCompleted).toBe(0);
     expect(game.balance).toBe(0n);
     expect(game.continue()).toBe(false);
+  });
+
+  it('fails after two insufficient recovery waves without granting pending currency', () => {
+    const game = new Campaign(390, 550);
+    game.sim.hp = 100;
+    for (let i = 0; i < 5; i++) {
+      expect(game.startWave()).toBe(true);
+      game.advance(60_000);
+    }
+    expect(game.sim.phase).toBe('LOST');
+    expect(game.sim.recoveryCount).toBe(2);
+    expect(game.balance).toBe(0n);
+    expect(game.sim.provisional).toBe(0n);
+    expect(game.startWave()).toBe(false);
   });
   it('advances 1 → 2 → 3 without a skip, then blocks official progress at the boss gate', () => {
     const game = new Campaign(390, 550);

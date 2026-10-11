@@ -18,7 +18,7 @@ dialog h2 { margin: 0 0 8px; } dialog p { margin: 5px 0 9px; }
 .shop-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px; border-top: 1px solid #cda66e; }
 .shop-card span { flex: 1; min-width: 0; } .shop-card small { display: block; }
 .dialog-actions { display: flex; gap: 5px; justify-content: flex-end; margin-top: 8px; }
-#shopDialog .dialog-actions { position: sticky; bottom: 0; padding: 5px 0; background: #fff8e9; }
+#shopDialog .dialog-actions, #menuDialog .dialog-actions { position: sticky; bottom: 0; padding: 5px 0; background: #fff8e9; }
 #stageList { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 0; list-style: none; font-size: 12px; }
 #stageList li { padding: 3px; border-radius: 4px; background: #edcf9b; }
 #stageList li.locked { opacity: .45; }
