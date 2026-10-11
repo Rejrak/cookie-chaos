@@ -222,10 +222,14 @@ export class P0Simulation {
   private step(ms: number) {
     const dt = ms / 1000;
     this.totalTimeMs += ms;
+    this.fireElapsed += ms;
+    if (this.firing) {
+      const interval = 1000 / this.fireRate;
+      while (this.fireElapsed >= interval) { this.fireElapsed -= interval; this.shoot(); }
+    } else this.fireElapsed = Math.min(this.fireElapsed, 1000 / this.fireRate);
     if (this.phase === 'RUNNING') {
     this.waveTimeMs += ms;
     this.spawnElapsed += ms;
-    this.fireElapsed += ms;
     while (this.queue.length && this.spawnElapsed >= this.rules.spawnMs && this.waveTimeMs < this.waveDurationMs) {
       this.spawnElapsed -= this.rules.spawnMs;
       this.spawn();
@@ -234,11 +238,6 @@ export class P0Simulation {
       for (const kind of this.queue) this.unspawned[kind]++;
       this.queue.length = 0;
     }
-    if (this.firing) {
-      const interval = 1000 / this.fireRate;
-      while (this.fireElapsed >= interval) { this.fireElapsed -= interval; this.shoot(); }
-    } else this.fireElapsed = Math.min(this.fireElapsed, 1000 / this.fireRate);
-
     for (const body of this.cookies) {
       const fallDistance = Math.max(30, this.groundY - 2 * this.cookieRadius);
       const fallSeconds = this.rules.fallSeconds?.[body.kind] ?? P0.fallSeconds[body.kind];

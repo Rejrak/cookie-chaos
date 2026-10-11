@@ -156,9 +156,11 @@ class CampaignScene extends Phaser.Scene {
   }
 }
 
-new Phaser.Game({ type: Phaser.AUTO, parent: 'arena', backgroundColor: '#fff3d5',
+const phaserGame = new Phaser.Game({ type: Phaser.AUTO, parent: 'arena', backgroundColor: '#fff3d5',
   scale: { mode: Phaser.Scale.RESIZE, width: arenaEl.clientWidth, height: arenaEl.clientHeight },
   scene: CampaignScene, render: { pixelArt: false, antialias: true } });
+new ResizeObserver(() => phaserGame.scale.refresh()).observe(arenaEl);
+requestAnimationFrame(() => phaserGame.scale.refresh());
 const diagnostic = import.meta.env.DEV && new URLSearchParams(location.search).get('diagnostic') === '1';
 if (diagnostic) {
   el('diagnostic').hidden = false;

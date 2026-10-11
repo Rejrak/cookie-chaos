@@ -75,6 +75,7 @@ export class BossEncounter {
   }
   takeHit(damage: number): { dealt: number; blocked: number; defeated: boolean } {
     if (!Number.isSafeInteger(damage) || damage < 1 || this.hp <= 0) return { dealt: 0, blocked: 0, defeated: this.hp <= 0 };
+    const previousPhase = this.phase;
     let dealt = 0, blocked = 0;
     if (this.guard && this.vulnerabilityMs <= 0) {
       blocked = Math.min(this.guard, damage); this.guard -= blocked; this.blocked += blocked;
@@ -82,6 +83,8 @@ export class BossEncounter {
       dealt = Math.min(this.hp, damage * (this.vulnerabilityMs > 0 ? 2 : 1));
       this.hp -= dealt; this.damageDealt += dealt;
     }
+    if (this.hp > 0 && this.phase !== previousPhase && (this.phase === 'RAGE' || this.phase === 'GOLDEN FORM') && !this.warningMs)
+      this.nextAttackMs = Math.min(this.nextAttackMs, this.timeMs + 300);
     this.recordPhase(0);
     return { dealt, blocked, defeated: this.hp <= 0 };
   }
