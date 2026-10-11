@@ -71,6 +71,24 @@ describe('P2 boss encounters', () => {
     expect(game.sim.sp).toBe(34);
     expect(boss.rewardPaid).toBeLessThanOrEqual(boss.config.rewardBudget);
   });
+  it('intercepts hostile cookies with cannon bullets and never grants Stage Points', () => {
+    const game = gameBoss(3), boss = game.sim.boss!;
+    boss.threats.push({ id: 101, kind: 'NORMAL', x: 60, y: 260, vx: 0, vy: 0,
+      hp: 1, radius: 18, damage: 1, reward: 1n, signal: false });
+    const before = game.sim.sp;
+    game.sim.bullets.push({ x: 60, y: 300, vx: 0, vy: -game.sim.projectileSpeed, lifeMs: 200, bounces: 0 });
+    for (let i = 0; i < 5; i++) game.advance(P0.stepMs);
+    expect(boss.intercepted).toBe(1);
+    expect(boss.threats.length).toBe(0);
+    expect(game.sim.provisional).toBe(1n);
+    expect(game.sim.sp).toBe(before);
+  });
+  it('uses the same fixed clock at 30 and 60 FPS', () => {
+    const at30 = gameBoss(9), at60 = gameBoss(9);
+    for (let i = 0; i < 120; i++) at30.advance(1000 / 30);
+    for (let i = 0; i < 240; i++) at60.advance(1000 / 60);
+    expect(at30.sim.boss?.metrics()).toEqual(at60.sim.boss?.metrics());
+  });
   it('boss death waits for hostile cleanup; base death during cleanup wins priority', () => {
     const game = gameBoss(3), boss = game.sim.boss!;
     boss.threats.push({ id: 8, kind: 'HARD', x: 20, y: game.sim.groundY - 30, vx: 0, vy: 0,
@@ -120,5 +138,48 @@ describe('P2 boss encounters', () => {
     expect(p2.state.version).toBe(2); expect(p2.stageId).toBe(3);
     expect(p2.balance).toBe(9007199254740993n);
     expect(p2.state.highestCompleted).toBe(2);
+  });
+  it('progresses 1–12 through actual wave and projectile transitions, then reloads Kingdom completion', () => {
+    const values = new Map<string, string>();
+    const storage = { getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); } };
+    const game = new Campaign(390, 550, storage);
+    for (let stage = 1; stage <= 12; stage++) {
+      expect(game.stageId).toBe(stage);
+      for (let wave = 0; wave < game.stage.waves.length; wave++) {
+        expect(game.startWave()).toBe(true);
+        for (let tick = 0; tick < 800 && game.sim.phase === 'RUNNING'; tick++) {
+          for (const body of game.sim.cookies) for (let hit = 0; hit < body.hp; hit++)
+            game.sim.bullets.push({ x: body.x, y: body.y, vx: 0, vy: 0, lifeMs: 100, bounces: 0 });
+          game.advance(50);
+        }
+        expect(game.sim.phase).not.toBe('RUNNING');
+      }
+      if (game.stage.boss) {
+        expect(game.sim.phase).toBe('BOSS_INTRO');
+        expect(game.startBoss()).toBe(true);
+        for (let tick = 0; tick < 300 && (game.sim.phase === 'BOSS_FIGHT' || game.sim.phase === 'BOSS_CLEANUP'); tick++) {
+          const boss = game.sim.boss!;
+          for (const threat of boss.threats) for (let hit = 0; hit < threat.hp; hit++)
+            game.sim.bullets.push({ x: threat.x, y: threat.y, vx: 0, vy: 0, lifeMs: 100, bounces: 0 });
+          if (boss.hp > 0) {
+            const spot = boss.target;
+            game.sim.bullets.push({ x: spot.x, y: spot.y, vx: 0, vy: 0, lifeMs: 100, bounces: 0 });
+          }
+          game.advance(50);
+        }
+      }
+      expect(game.sim.phase).toBe('WON');
+      expect(game.state.highestCompleted).toBe(stage);
+      if (stage < 12) expect(game.continue()).toBe(true);
+    }
+    expect(game.state.kingdomCompleted).toBe(true);
+    expect(game.continue()).toBe(false);
+    const balance = game.balance;
+    const loaded = new Campaign(390, 550, storage);
+    expect(loaded.state.highestCompleted).toBe(12);
+    expect(loaded.state.kingdomCompleted).toBe(true);
+    expect(loaded.sim.phase).toBe('WON');
+    expect(loaded.balance).toBe(balance);
   });
 });

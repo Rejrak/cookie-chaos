@@ -7,10 +7,13 @@ header { display: flex; justify-content: space-between; align-items: center; pad
 header small { color: #ffdb83; }
 .hud { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 2px 8px; padding: 4px 7px; background: #694132; color: #fff7e8; font-size: 13px; font-weight: 800; }
 #hp { color: #ffb4ad; } #sp { color: #bfe5ff; } #clock { color: #ffe58a; }
+#bossHud { flex: none; padding: 4px 8px; text-align: center; font-size: 12px; font-weight: 800; background: #56352e; color: #fff7e8; }
+#bossHud[hidden] { display: none; }
 #arena { flex: 1; width: 100%; min-height: 150px; align-self: center; margin: auto 0; overflow: hidden; touch-action: none; box-shadow: 0 0 0 2px #cda66e; }
 #arena canvas { display: block; }
 footer { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 5px; background: #edcf9b; }
 button, select { font: inherit; color: inherit; border: 2px solid #704b37; border-radius: 8px; background: #fff8e9; min-height: 36px; padding: 4px 9px; font-weight: 750; cursor: pointer; }
+#diagnostic input { width: 3.5em; font: inherit; }
 button:disabled { opacity: .45; cursor: default; }
 .primary { background: #edaf44; }
 dialog { border: 3px solid #704b37; border-radius: 12px; background: #fff8e9; color: #39251d; width: min(96vw, 540px); max-height: 90vh; overflow: auto; }

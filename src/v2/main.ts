@@ -8,9 +8,10 @@ const root = document.querySelector<HTMLDivElement>('#v2')!;
 root.innerHTML = `
 <header><strong>COOKIE CHAOS <small>V2 · KINGDOM I</small></strong><span id="status"></span></header>
 <div class="hud"><span id="stage"></span><span id="hp"></span><span id="sp"></span><span id="money"></span><span id="clock"></span></div>
+<div id="bossHud" hidden aria-live="polite"></div>
 <div id="arena" aria-label="Shooter arena: drag or point and hold to fire"></div>
 <footer><button id="menu">Campaign</button><button id="shop">Shop</button><button id="action" class="primary">Start wave 1</button><button id="metrics">Metrics / JSON</button></footer>
-<dialog id="menuDialog"><h2>Cookie Chaos V2</h2><p>Defend the base. Clear every wave and reach the Stage Points target.</p><p id="menuProgress"></p><ol id="stageList"></ol><label>Touch aim <select id="touch"><option value="DIRECT">Direct</option><option value="OFFSET">Offset</option></select></label><p id="warning"></p><div id="diagnostic" hidden><label>Diagnostic stage preview <select id="preview"></select></label><p>No campaign saves, currency or unlocks in preview.</p></div><div class="dialog-actions"><button id="closeMenu" class="primary">Play</button></div></dialog>
+<dialog id="menuDialog"><h2>Cookie Chaos V2</h2><p>Defend the base. Clear every wave and reach the Stage Points target.</p><p id="menuProgress"></p><ol id="stageList"></ol><label>Touch aim <select id="touch"><option value="DIRECT">Direct</option><option value="OFFSET">Offset</option></select></label><p id="warning"></p><div id="diagnostic" hidden><label>Diagnostic stage preview <select id="preview"></select></label><label>Damage Lv <input id="testDamage" type="number" min="0" max="4" value="0"></label><label>Fire Rate Lv <input id="testRate" type="number" min="0" max="3" value="0"></label><label>Base HP <input id="testHp" type="number" min="1" max="5" value="5"></label><button id="previewBoss">Preview selected boss</button><p>Diagnostic only: no saved currency or unlocks. Seed 1207.</p></div><div class="dialog-actions"><button id="closeMenu" class="primary">Play</button></div></dialog>
 <dialog id="shopDialog"><h2>Kingdom Shop</h2><p>Only consolidated Cookies are spendable. Purchases persist after Retry.</p><p id="shopBalance"></p><div id="shopCards"></div><div class="dialog-actions"><button id="closeShop" class="primary">Return</button></div></dialog>
 <dialog id="metricsDialog"><h2>Local campaign metrics</h2><pre id="metricsText"></pre><div class="dialog-actions"><button id="export">Download JSON</button><button id="closeMetrics">Close</button></div></dialog>`;
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -28,7 +29,8 @@ const touchSelect = el<HTMLSelectElement>('touch');
 touchSelect.value = campaign.state.control;
 
 function drawMenu() {
-  el('menuProgress').textContent = `Stage ${campaign.stageId}: ${campaign.stage.name} · Highest completed: ${campaign.state.highestCompleted}`;
+  el('menuProgress').textContent = campaign.state.kingdomCompleted ? 'KINGDOM I COMPLETED · Kingdom II and Endless are coming later.' :
+    `Stage ${campaign.stageId}: ${campaign.stage.name} · Highest completed: ${campaign.state.highestCompleted}`;
   el('stageList').innerHTML = KINGDOM_ONE.map(stage => `<li class="${stage.id > campaign.state.highestCompleted + 1 ? 'locked' : ''}">Stage ${stage.id}${stage.boss ? ' · Boss gate' : ''}</li>`).join('');
   el('warning').textContent = campaign.persistenceWarning;
 }
@@ -49,15 +51,28 @@ function renderUi() {
   el('hp').textContent = `BASE ${sim.hp}/${campaign.state.maxHp}`;
   el('sp').textContent = `SP ${sim.sp}/${campaign.stage.targetSp}`;
   el('money').textContent = `Cookies ${campaign.balance} +${sim.provisional} pending`;
-  el('clock').textContent = phase === 'RUNNING' ? `${Math.max(0, (sim.waveDurationMs - sim.waveTimeMs) / 1000).toFixed(1)}s` : 'PAUSED';
-  el('status').textContent = phase === 'RUNNING' ? sim.waveLabel : phase === 'WON' ? `STAGE ${campaign.stageId} COMPLETE` :
-    phase === 'LOST' ? 'DEFEAT · pending Cookies lost' : phase === 'AWAITING_BOSS_IMPLEMENTATION' ? `${campaign.stage.boss} awaits P2` : `${campaign.stage.name} · Prepare`;
+  el('clock').textContent = phase === 'RUNNING' ? `${Math.max(0, (sim.waveDurationMs - sim.waveTimeMs) / 1000).toFixed(1)}s` :
+    phase === 'BOSS_FIGHT' ? `${(sim.boss!.remainingMs / 1000).toFixed(1)}s` : 'PAUSED';
+  const bossHud = el('bossHud'), boss = sim.boss;
+  bossHud.hidden = !boss || (phase !== 'BOSS_FIGHT' && phase !== 'BOSS_CLEANUP');
+  if (boss) bossHud.textContent = `${boss.config.name} · ${boss.phase} · HP ${boss.hp}/${boss.config.hp}` +
+    (boss.config.guard ? ` · Protection ${boss.guard}/${boss.config.guard}` : '') +
+    (boss.warning ? ' · ⚠ INCOMING: intercept the cookies!' : boss.vulnerabilityMs ? ' · OPEN: strike now!' : '') +
+    (phase === 'BOSS_CLEANUP' ? ' · CLEANUP: defend the base!' : '');
+  if (boss && window.innerWidth <= 390 && window.innerHeight <= 380)
+    bossHud.textContent = `${boss.config.name.replace('Cookie ', '')} · ${boss.hp}/${boss.config.hp} HP` +
+      (boss.config.guard ? ` · 🛡 ${boss.guard}` : '') + (boss.warning ? ' · ⚠ INCOMING' : boss.vulnerabilityMs ? ' · OPEN' : '') +
+      (phase === 'BOSS_CLEANUP' ? ' · CLEAR THREATS' : '');
+  el('status').textContent = phase === 'RUNNING' ? sim.waveLabel : phase === 'WON' ?
+    (campaign.state.kingdomCompleted ? 'KINGDOM I COMPLETED' : `STAGE ${campaign.stageId} COMPLETE`) :
+    phase === 'LOST' ? `DEFEAT · ${sim.failureReason ?? 'attempt failed'} · pending Cookies lost` : phase === 'BOSS_INTRO' ? `${campaign.stage.boss} · prepare and start battle` :
+    phase === 'BOSS_FIGHT' ? `${boss?.config.name} · defend and attack` : phase === 'BOSS_CLEANUP' ? 'Boss defeated · clear incoming threats' : `${campaign.stage.name} · Prepare`;
   const action = el<HTMLButtonElement>('action');
-  action.hidden = phase === 'RUNNING' || phase === 'AWAITING_BOSS_IMPLEMENTATION';
-  action.textContent = phase === 'WON' ? `Continue to Stage ${campaign.nextStage}` : phase === 'LOST' ? 'Retry stage' :
+  action.hidden = phase === 'RUNNING' || phase === 'BOSS_FIGHT' || phase === 'BOSS_CLEANUP' || campaign.state.kingdomCompleted;
+  action.textContent = phase === 'WON' ? `Continue to Stage ${campaign.nextStage}` : phase === 'LOST' ? 'Retry stage' : phase === 'BOSS_INTRO' ? 'Start boss battle' :
     sim.wave < 0 ? 'Start wave 1' : sim.wave < campaign.stage.waves.length - 1 ? `Start wave ${sim.wave + 2}` : `Start recovery ${sim.recoveryCount + 1}`;
   el<HTMLButtonElement>('shop').disabled = !campaign.canShop;
-  el<HTMLButtonElement>('menu').disabled = phase === 'RUNNING';
+  el<HTMLButtonElement>('menu').disabled = phase === 'RUNNING' || phase === 'BOSS_FIGHT' || phase === 'BOSS_CLEANUP';
 }
 
 class CampaignScene extends Phaser.Scene {
@@ -66,14 +81,20 @@ class CampaignScene extends Phaser.Scene {
   private sprites = new Map<number, Phaser.GameObjects.Image>();
   private labels = new Map<number, Phaser.GameObjects.Text>();
   private currentSim = campaign.sim;
+  private bossSprite!: Phaser.GameObjects.Image;
   constructor() { super('campaign'); }
   preload() {
     this.load.svg('v2-normal', '/cookie.svg', { width: 96, height: 96 });
     this.load.svg('v2-hard', '/hard-cookie.svg', { width: 96, height: 96 });
     this.load.svg('v2-golden', '/golden-cookie.svg', { width: 96, height: 96 });
+    for (const id of ['barbarian', 'knight', 'berserker', 'cookieng']) this.load.svg(`v2-boss-${id}`, `/boss-${id}.svg`, { width: 192, height: 192 });
+    this.load.svg('v2-boss-cookieng-golden', '/boss-cookieng-golden.svg', { width: 192, height: 192 });
+    this.load.svg('v2-boss-berserker-rage', '/boss-berserker-rage.svg', { width: 192, height: 192 });
+    this.load.svg('v2-boss-knight-exposed', '/boss-knight-exposed.svg', { width: 192, height: 192 });
   }
   create() {
     this.graphics = this.add.graphics(); this.aim = this.add.graphics();
+    this.bossSprite = this.add.image(0, 0, 'v2-boss-barbarian').setVisible(false);
     const point = (pointer: Phaser.Input.Pointer, firing: boolean) => {
       const offset = pointer.wasTouch && touchSelect.value === 'OFFSET' ? 70 : 0;
       campaign.sim.setAim(pointer.x, pointer.y - offset, firing);
@@ -88,7 +109,7 @@ class CampaignScene extends Phaser.Scene {
     if (focused && !document.hidden && !menuDialog.open && !shopDialog.open && !metricsDialog.open && !resumeFrame) campaign.advance(delta);
     resumeFrame = false;
     this.draw();
-    if (campaign.sim.phase !== previousPhase || campaign.sim.phase === 'RUNNING') { renderUi(); previousPhase = campaign.sim.phase; }
+    if (campaign.sim.phase !== previousPhase || campaign.sim.phase === 'RUNNING' || campaign.sim.phase === 'BOSS_FIGHT' || campaign.sim.phase === 'BOSS_CLEANUP') { renderUi(); previousPhase = campaign.sim.phase; }
   }
   private draw() {
     const sim = campaign.sim, w = sim.width, h = sim.height;
@@ -105,20 +126,30 @@ class CampaignScene extends Phaser.Scene {
     if (obstacle) this.graphics.lineStyle(2 * sim.obstacleHalfWidth, 0x75503b).lineBetween(obstacle.ax, obstacle.ay, obstacle.bx, obstacle.by);
     this.graphics.fillStyle(0x4b2d23).fillRect(0, sim.groundY, w, h - sim.groundY);
     for (const bullet of sim.bullets) this.graphics.fillStyle(0x68402e).fillCircle(bullet.x, bullet.y, sim.bulletRadius);
+    const boss = sim.boss;
+    this.bossSprite.setVisible(!!boss && sim.phase === 'BOSS_FIGHT');
+    if (boss && sim.phase === 'BOSS_FIGHT') {
+      const spot = boss.target;
+      const variant = boss.phase === 'RAGE' ? 'berserker-rage' : boss.phase === 'GOLDEN FORM' ? 'cookieng-golden' :
+        boss.config.id === 'knight' && boss.guard === 0 ? 'knight-exposed' : boss.config.id;
+      this.bossSprite.setTexture(`v2-boss-${variant}`).setPosition(spot.x, spot.y).setDisplaySize(spot.radius * 2, spot.radius * 2);
+      this.graphics.lineStyle(3, boss.warning ? 0xc93121 : boss.vulnerabilityMs ? 0x1d9581 : 0x60432b).strokeCircle(spot.x, spot.y, spot.radius + 5);
+      if (boss.warning) this.graphics.fillStyle(0xc93121).fillTriangle(spot.x - 8, spot.y - spot.radius - 9, spot.x + 8, spot.y - spot.radius - 9, spot.x, spot.y - spot.radius - 25);
+    }
     this.graphics.fillStyle(0x8b5b3d).fillCircle(sim.cannonX, sim.cannonY, sim.cookieRadius);
     const aim = sim.aimPoint, ax = aim.x - sim.cannonX, ay = aim.y - sim.cannonY;
     const length = Math.hypot(ax, ay) || 1;
     this.aim.lineStyle(3, 0x56372c).lineBetween(sim.cannonX, sim.cannonY, sim.cannonX + ax / length * sim.cookieRadius * 2.2, sim.cannonY + ay / length * sim.cookieRadius * 2.2);
     const present = new Set<number>();
-    for (const body of sim.cookies) {
+    for (const body of [...sim.cookies.map(cookie => ({ ...cookie, radius: sim.cookieRadius, signal: false })), ...(boss?.threats ?? []).map(threat => ({ ...threat, id: threat.id + 10_000 }))]) {
       present.add(body.id);
       let sprite = this.sprites.get(body.id);
       if (!sprite) { sprite = this.add.image(body.x, body.y, `v2-${body.kind.toLowerCase()}`); this.sprites.set(body.id, sprite); }
-      sprite.setPosition(body.x, body.y).setDisplaySize(2 * sim.cookieRadius, 2 * sim.cookieRadius);
-      if (body.kind === 'HARD') {
+      sprite.setPosition(body.x, body.y).setDisplaySize(2 * body.radius, 2 * body.radius);
+      if (body.kind === 'HARD' || body.signal) {
         let label = this.labels.get(body.id);
         if (!label) { label = this.add.text(body.x, body.y, '', { fontFamily: 'system-ui', fontSize: '14px', color: '#ffffff', stroke: '#301f19', strokeThickness: 3 }).setOrigin(0.5); this.labels.set(body.id, label); }
-        label.setPosition(body.x, body.y).setText(String(body.hp));
+        label.setPosition(body.x, body.y).setText(`${body.signal ? '!' : ''}${body.hp}`);
       }
     }
     for (const [id, sprite] of this.sprites) if (!present.has(id)) { sprite.destroy(); this.sprites.delete(id); this.labels.get(id)?.destroy(); this.labels.delete(id); }
@@ -137,10 +168,22 @@ if (diagnostic) {
     campaign = new Campaign(arenaEl.clientWidth, arenaEl.clientHeight, null, Number(preview.value));
     drawMenu(); renderUi();
   });
+  el<HTMLButtonElement>('previewBoss').addEventListener('click', () => {
+    const selected = Number(preview.value);
+    if (!KINGDOM_ONE[selected - 1]?.boss) return;
+    campaign = new Campaign(arenaEl.clientWidth, arenaEl.clientHeight, null, selected);
+    const damage = Number(el<HTMLInputElement>('testDamage').value), rate = Number(el<HTMLInputElement>('testRate').value), hp = Number(el<HTMLInputElement>('testHp').value);
+    campaign.sim.damageLevel = Number.isInteger(damage) ? Math.max(0, Math.min(4, damage)) : 0;
+    campaign.sim.fireRateLevel = Number.isInteger(rate) ? Math.max(0, Math.min(3, rate)) : 0;
+    campaign.sim.hp = Number.isInteger(hp) ? Math.max(1, Math.min(5, hp)) : 5;
+    campaign.sim.phase = 'BOSS_INTRO';
+    menuDialog.close(); renderUi();
+  });
 }
 el('action').addEventListener('click', () => {
   if (campaign.sim.phase === 'WON') campaign.continue();
   else if (campaign.sim.phase === 'LOST') campaign.retry();
+  else if (campaign.sim.phase === 'BOSS_INTRO') campaign.startBoss();
   else campaign.startWave();
   renderUi(); drawMenu();
 });

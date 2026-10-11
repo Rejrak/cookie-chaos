@@ -37,6 +37,7 @@ export class P0Simulation {
   readonly purchases: { kind: 'damage' | 'fireRate'; cost: string; timeMs: number }[] = [];
   readonly waveBudgets: { attempt: number; wave: number; scheduled: number; generated: number; unspawned: number; potentialSp: number }[] = [];
   phase: Phase = 'PREP';
+  failureReason: 'HEALTH' | 'TIMEOUT' | 'STAGE_POINTS' | null = null;
   hp: number;
   maxHp: number;
   stageEntryHp: number = P0.maxHp;
@@ -186,6 +187,7 @@ export class P0Simulation {
     this.queue = [];
     this.accumulator = 0;
     this.phase = 'PREP';
+    this.failureReason = null;
     this.release();
     return true;
   }
@@ -265,16 +267,16 @@ export class P0Simulation {
         this.hp = Math.max(0, this.hp - damage);
         this.damageTaken += damage;
         this.events.push({ type: 'escape', kind: body.kind, x: body.x, y: body.y });
-        if (!this.hp) { this.lose(); return; }
+        if (!this.hp) { this.lose('HEALTH'); return; }
       }
     }
     } else if (this.boss) {
       const result = this.boss.tick(ms, this.groundY);
-      if (result.timeout) { this.lose(); return; }
+      if (result.timeout) { this.lose('TIMEOUT'); return; }
       if (result.damage) {
         this.hp = Math.max(0, this.hp - result.damage); this.damageTaken += result.damage;
         this.events.push({ type: 'escape' });
-        if (!this.hp) { this.lose(); return; }
+        if (!this.hp) { this.lose('HEALTH'); return; }
       }
     }
 
@@ -468,7 +470,7 @@ export class P0Simulation {
     this.phase = 'PREP';
   }
 
-  private lose() {
+  private lose(reason: 'HEALTH' | 'TIMEOUT' | 'STAGE_POINTS' = 'STAGE_POINTS') {
     const wasRunning = this.phase === 'RUNNING';
     if (this.queue.length) {
       for (const kind of this.queue) this.unspawned[kind]++;
@@ -480,7 +482,7 @@ export class P0Simulation {
     const last = this.waveDurations.at(-1);
     if (this.phase === 'RUNNING' && (last?.attempt !== this.retryCount + 1 || last?.wave !== this.wave + 1))
       this.waveDurations.push({ attempt: this.retryCount + 1, wave: this.wave + 1, durationMs: this.waveTimeMs });
-    this.phase = 'LOST'; this.removedOnLoss += this.cookies.length; this.cookies.length = 0; this.bullets.length = 0;
+    this.phase = 'LOST'; this.failureReason = reason; this.removedOnLoss += this.cookies.length; this.cookies.length = 0; this.bullets.length = 0;
     if (this.boss) this.boss.threats.length = 0;
     this.provisional = 0n; this.release();
   }
@@ -491,7 +493,7 @@ export class P0Simulation {
       config: { targetSp: this.rules.targetSp, maxHp: this.maxHp, ordinaryWaveMs: this.rules.waveMs, currentWaveMs: this.waveDurationMs, spawnMs: this.rules.spawnMs, fallSeconds: this.rules.fallSeconds ?? P0.fallSeconds,
         cookieRadius: this.cookieRadius, bulletRadius: this.bulletRadius, projectileSpeed: this.projectileSpeed },
       viewport: { width: this.width, height: this.height },
-      phase: this.phase, wave: this.waveLabel, waveDurationsMs: this.waveDurations,
+      phase: this.phase, failureReason: this.failureReason, wave: this.waveLabel, waveDurationsMs: this.waveDurations,
       totalTimeMs: Math.round(this.totalTimeMs), shots: this.shots, hits: this.hits,
       accuracy: this.accuracy, ricochetHits: this.ricochetHits,
       destroyed: this.destroyed, escaped: this.escaped, hp: this.hp, damageTaken: this.damageTaken,
