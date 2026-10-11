@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { P0 } from '../p0/config';
+import { P0, type CookieKind } from '../p0/config';
 import { Campaign, SHOP, type UpgradeKind } from './campaign';
 import { KINGDOM_ONE } from './stages';
 import './style.css';
@@ -11,7 +11,7 @@ root.innerHTML = `
 <div id="bossHud" hidden aria-live="polite"></div>
 <div id="arena" aria-label="Shooter arena: drag or point and hold to fire"></div>
 <footer><button id="menu">Campaign</button><button id="shop">Shop</button><button id="action" class="primary">Start wave 1</button><button id="metrics">Metrics / JSON</button></footer>
-<dialog id="menuDialog"><h2>Cookie Chaos V2</h2><p>Defend the base. Clear every wave and reach the Stage Points target.</p><p id="menuProgress"></p><ol id="stageList"></ol><label>Touch aim <select id="touch"><option value="DIRECT">Direct</option><option value="OFFSET">Offset</option></select></label><p id="warning"></p><div id="diagnostic" hidden><label>Diagnostic stage preview <select id="preview"></select></label><label>Damage Lv <input id="testDamage" type="number" min="0" max="4" value="0"></label><label>Fire Rate Lv <input id="testRate" type="number" min="0" max="3" value="0"></label><label>Base HP <input id="testHp" type="number" min="1" max="5" value="5"></label><button id="previewBoss">Preview selected boss</button><p>Diagnostic only: no saved currency or unlocks. Seed 1207.</p></div><div class="dialog-actions"><button id="closeMenu" class="primary">Play</button></div></dialog>
+<dialog id="menuDialog"><h2>Cookie Chaos V2</h2><p>Defend the base. Clear every wave and reach the Stage Points target.</p><p id="menuProgress"></p><ol id="stageList"></ol><label>Touch aim <select id="touch"><option value="DIRECT">Direct</option><option value="OFFSET">Offset</option></select></label><p id="warning"></p><div id="diagnostic" hidden><label>Diagnostic stage preview <select id="preview"></select></label><label>Seed <input id="testSeed" type="number" min="0" max="4294967295" value="1207"></label><label>Damage Lv <input id="testDamage" type="number" min="0" max="4" value="0"></label><label>Fire Rate Lv <input id="testRate" type="number" min="0" max="3" value="0"></label><label>Base HP <input id="testHp" type="number" min="1" max="5" value="5"></label><button id="previewBoss">Preview selected boss</button><label>Enemy scenario <select id="testScenario"><option value="single">Single Bomb</option><option value="cluster">Bomb cluster</option><option value="chain">Bomb chain</option><option value="heavy">Reinforced + Titan</option></select></label><button id="previewEnemies">Preview enemies</button><p>Diagnostic only: no saved currency or unlocks.</p></div><div class="dialog-actions"><button id="closeMenu" class="primary">Play</button></div></dialog>
 <dialog id="shopDialog"><h2>Kingdom Shop</h2><p>Only consolidated Cookies are spendable. Purchases persist after Retry.</p><p id="shopBalance"></p><div id="shopCards"></div><div class="dialog-actions"><button id="closeShop" class="primary">Return</button></div></dialog>
 <dialog id="metricsDialog"><h2>Local campaign metrics</h2><pre id="metricsText"></pre><div class="dialog-actions"><button id="export">Download JSON</button><button id="closeMetrics">Close</button></div></dialog>`;
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -178,17 +178,37 @@ if (diagnostic) {
   preview.innerHTML = KINGDOM_ONE.map(stage => `<option value="${stage.id}">Stage ${stage.id}: ${stage.name}</option>`).join('');
   preview.addEventListener('change', () => {
     campaign = new Campaign(arenaEl.clientWidth, arenaEl.clientHeight, null, Number(preview.value));
+    campaign.setPreviewSeed(Number(el<HTMLInputElement>('testSeed').value));
     drawMenu(); renderUi();
   });
-  el<HTMLButtonElement>('previewBoss').addEventListener('click', () => {
-    const selected = Number(preview.value);
-    if (!KINGDOM_ONE[selected - 1]?.boss) return;
-    campaign = new Campaign(arenaEl.clientWidth, arenaEl.clientHeight, null, selected);
+  const load = (stage: number) => {
+    campaign = new Campaign(arenaEl.clientWidth, arenaEl.clientHeight, null, stage);
+    campaign.setPreviewSeed(Number(el<HTMLInputElement>('testSeed').value));
     const damage = Number(el<HTMLInputElement>('testDamage').value), rate = Number(el<HTMLInputElement>('testRate').value), hp = Number(el<HTMLInputElement>('testHp').value);
     campaign.sim.damageLevel = Number.isInteger(damage) ? Math.max(0, Math.min(4, damage)) : 0;
     campaign.sim.fireRateLevel = Number.isInteger(rate) ? Math.max(0, Math.min(3, rate)) : 0;
     campaign.sim.hp = Number.isInteger(hp) ? Math.max(1, Math.min(5, hp)) : 5;
+  };
+  el<HTMLButtonElement>('previewBoss').addEventListener('click', () => {
+    const selected = Number(preview.value);
+    if (!KINGDOM_ONE[selected - 1]?.boss) return;
+    load(selected);
     campaign.sim.phase = 'BOSS_INTRO';
+    menuDialog.close(); renderUi();
+  });
+  el<HTMLButtonElement>('previewEnemies').addEventListener('click', () => {
+    const scenario = el<HTMLSelectElement>('testScenario').value;
+    load(scenario === 'heavy' ? 9 : 7);
+    const sim = campaign.sim, center = sim.width / 2, y = sim.groundY * 0.37, spacing = sim.cookieRadius * 2.1;
+    const kinds: CookieKind[] = scenario === 'heavy' ? ['REINFORCED', 'TITAN'] :
+      scenario === 'single' ? ['BOMB'] : scenario === 'chain' ? ['BOMB', 'BOMB', 'BOMB'] :
+        ['BOMB', 'BOMB', 'BOMB', 'BOMB', 'NORMAL', 'HARD'];
+    sim.wave = 0; sim.phase = 'RUNNING'; sim.waveDurationMs = 60_000;
+    for (const [index, kind] of kinds.entries()) {
+      const radius = sim.cookieRadius * (kind === 'TITAN' ? 1.42 : kind === 'REINFORCED' ? 1.15 : kind === 'BOMB' ? 1.12 : 1);
+      sim.cookies.push({ id: index + 1, kind, x: Math.max(radius, Math.min(sim.width - radius, center + (index - (kinds.length - 1) / 2) * spacing)),
+        y: y + index % 2 * radius, vx: 0, vy: 0, hp: P0.cookies[kind].hp, stuckMs: 0, radius, maxY: y });
+    }
     menuDialog.close(); renderUi();
   });
 }

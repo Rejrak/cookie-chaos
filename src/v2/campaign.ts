@@ -91,6 +91,12 @@ export class Campaign {
     catch { this.persistenceWarning = 'Save failed; progress is in memory only.'; this.storage = null; }
   }
   setControl(mode: 'DIRECT' | 'OFFSET') { this.state.control = mode; this.save(); }
+  setPreviewSeed(seed: number) {
+    if (!this.preview || !Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff) return false;
+    this.state.seed = seed;
+    this.sim = this.createSim(this.sim.width, this.sim.height);
+    return true;
+  }
   startWave() { return this.sim.startWave(); }
   startBoss() { return this.sim.startBoss(); }
   resize(width: number, height: number) { this.sim.resize(width, height); }

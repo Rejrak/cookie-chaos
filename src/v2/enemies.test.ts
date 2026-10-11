@@ -91,4 +91,25 @@ describe('P3-A campaign cookies', () => {
     expect(sim.destroyed.BOMB).toBe(1); expect(sim.destroyed.HARD).toBe(1);
     expect(sim.provisional).toBe(6n); expect(sim.sp).toBe(3);
   });
+  it('produces the same chain result at 30 and 60 render FPS and clears blast on failure', () => {
+    const run = (fps: number) => {
+      const sim = make({ BOMB: 1 }); sim.startWave();
+      const bomb = sim.cookies[0]; bomb.x = 100; bomb.y = 140; bomb.vx = bomb.vy = 0;
+      add(sim, 'BOMB', 50, 150, 140); add(sim, 'TITAN', 51, 175, 140);
+      sim.bullets.push({ x: bomb.x, y: bomb.y, vx: 0, vy: 0, lifeMs: 100, bounces: 0 });
+      for (let i = 0; i < fps / 10; i++) sim.advance(1000 / fps);
+      return sim;
+    };
+    const a = run(30), b = run(60);
+    expect([a.destroyed.BOMB, a.destroyed.TITAN, a.sp, a.provisional])
+      .toEqual([b.destroyed.BOMB, b.destroyed.TITAN, b.sp, b.provisional]);
+    expect(a.destroyed.BOMB).toBe(2); expect(a.destroyed.TITAN).toBe(1);
+    a.phase = 'PREP'; const frozen = a.explosions[0].remainingMs;
+    a.advance(10_000); expect(a.explosions[0].remainingMs).toBe(frozen);
+    a.phase = 'RUNNING'; a.hp = 1;
+    const threat = add(a, 'TITAN', 80, 100, a.groundY - a.cookieRadius * 1.42);
+    threat.y = a.groundY - threat.radius!;
+    a.advance(P0.stepMs);
+    expect(a.phase).toBe('LOST'); expect(a.explosions).toHaveLength(0);
+  });
 });

@@ -190,4 +190,13 @@ describe('V2 campaign', () => {
     expect(game.persistenceWarning).toContain('invalid');
     expect(db.values.get('cookie-chaos-save')).toBe('old-clicker');
   });
+  it('isolates diagnostic seeds and previews from official saves', () => {
+    const db = storage(), official = new Campaign(390, 550, db);
+    const preview = new Campaign(390, 550, db, 9);
+    expect(preview.setPreviewSeed(77)).toBe(true);
+    expect(preview.sim.seed).not.toBe(official.sim.seed);
+    expect(preview.setPreviewSeed(-1)).toBe(false);
+    expect(official.setPreviewSeed(77)).toBe(false);
+    expect(db.values.has(SAVE_KEY)).toBe(false);
+  });
 });
